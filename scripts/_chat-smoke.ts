@@ -14,8 +14,7 @@ async function chat(sessionId: string, message: string) {
   console.log(`\nQ: ${message}`);
   console.log(`status: ${res.status}`);
   console.log(`X-Conversation-Id: ${res.headers.get('x-conversation-id')}`);
-  console.log(`X-Handed-Off: ${res.headers.get('x-handed-off')}`);
-  console.log('body:', text.slice(0, 400));
+  console.log('body:', text);
 }
 
 async function main() {

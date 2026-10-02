@@ -72,11 +72,54 @@ export async function countTrailingFailures(conversationId: string): Promise<num
 
 export async function markHandedOff(conversationId: string): Promise<void> {
   const db = createAdminClient();
+
+  // Read the flag BEFORE updating: skip the handoffs insert if already
+  // handed off, so 3rd+ consecutive no-answer turns don't add duplicate rows.
+  // The update below stays idempotent.
+  let alreadyHandedOff = false;
+  try {
+    const { data: current, error: selError } = await db
+      .from('conversations')
+      .select('handed_off')
+      .eq('id', conversationId)
+      .single();
+    if (selError) {
+      console.error('chat: handoffs guard lookup failed:', selError.message);
+    } else {
+      alreadyHandedOff = Boolean(current?.handed_off);
+    }
+  } catch (e) {
+    console.error(
+      'chat: handoffs guard lookup failed:',
+      e instanceof Error ? e.message : e
+    );
+  }
+
   const { error } = await db
     .from('conversations')
     .update({ handed_off: true })
     .eq('id', conversationId);
   if (error) throw new Error(`handoff update failed: ${error.message}`);
+
+  if (alreadyHandedOff) return;
+
+  // Mirror into handoffs for admin display. The conversations.handed_off
+  // flag above is the source of truth; a failure here must never fail the turn.
+  try {
+    const { error: insError } = await db.from('handoffs').insert({
+      conversation_id: conversationId,
+      reason: 'Two consecutive questions outside FAQ scope',
+      email: null,
+    });
+    if (insError) {
+      console.error('chat: handoffs insert failed:', insError.message);
+    }
+  } catch (e) {
+    console.error(
+      'chat: handoffs insert failed:',
+      e instanceof Error ? e.message : e
+    );
+  }
 }
 
 export async function isHandedOff(conversationId: string): Promise<boolean> {

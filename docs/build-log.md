@@ -4,6 +4,13 @@ Reverse-chronological. One section per completed layer.
 Each entry: date, what shipped, any decision worth remembering.
 These bullets become the case study's "technical decisions" section.
 
+## 2026-10-03 — Layer 5: Tool-call handoff signaling
+
+- Replaced threshold-based no-answer detection with the `reportNoAnswer` tool call as the signal (junk queries scored 0.57–0.59 vs real 0.68–0.77 — too thin to threshold).
+- Server-authoritative `FALLBACK_TEXT` persisted as `[[NOMATCH]] <text>` and streamed as a `data-fallback` part with `handoffReady` flag; `data-handoff` removed.
+- `markHandedOff` mirrors into `handoffs` (log-only on failure); `conversations.handed_off` remains source of truth.
+- gpt-oss stops after the tool call (no `execute` → single step), so tool turns stream no text — widget will render from the `data-fallback` part.
+
 ## 2026-10-02 — Layer 4: Provider stack flip
 
 - Switched primary LLM to Groq `openai/gpt-oss-120b`, fallback to Gemini `gemini-3.1-flash-lite`.

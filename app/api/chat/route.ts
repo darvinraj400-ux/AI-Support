@@ -3,12 +3,13 @@ import { groq } from '@ai-sdk/groq';
 import {
   streamText,
   toUIMessageStream,
+  createUIMessageStream,
   createUIMessageStreamResponse,
   type ModelMessage,
 } from 'ai';
 import { z } from 'zod';
 import { searchFaqs } from '@/lib/rag';
-import { buildSystemPrompt } from '@/lib/chat-prompt';
+import { buildSystemPrompt, reportNoAnswer, FALLBACK_TEXT } from '@/lib/chat-prompt';
 import {
   getOrCreateConversation,
   saveMessage,
@@ -58,7 +59,13 @@ function createStream(
   system: string,
   messages: ModelMessage[],
   useGroq: boolean,
-  onFinish: (event: { text: string }) => void | Promise<void>
+  hooks: {
+    onFinish: (event: {
+      text: string;
+      toolCalls: { toolName: string }[];
+    }) => void | Promise<void>;
+    onError: (event: { error?: unknown }) => void;
+  }
 ) {
   const model = useGroq
     ? groq('openai/gpt-oss-120b')
@@ -67,12 +74,15 @@ function createStream(
     model,
     system,
     messages,
+    tools: { reportNoAnswer },
+    toolChoice: 'auto',
     providerOptions: {
       google: {
         thinkingConfig: { thinkingBudget: 0 },
       },
     },
-    onFinish,
+    onFinish: hooks.onFinish,
+    onError: hooks.onError,
   });
 }
 
@@ -134,8 +144,6 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
-
-  const isNomatch = matches.length === 0;
   const system = buildSystemPrompt(matches);
 
   // Strip the [[NOMATCH]] sentinel from prior assistant messages before
@@ -143,54 +151,74 @@ export async function POST(req: Request) {
   const cleanMessages: ModelMessage[] = messages.map((m) => ({
     role: m.role,
     content:
-      m.role === 'assistant' && m.content.startsWith(NOMATCH_PREFIX)
-        ? m.content.slice(NOMATCH_PREFIX.length)
+      m.role === 'assistant'
+        ? m.content.replace(/^\[\[NOMATCH\]\]\s?/, '')
         : m.content,
   }));
 
-  // Handoff decision must be made BEFORE streaming: headers are fixed once
-  // the response starts, while persistence happens in onFinish after the
-  // stream completes. If this turn is a no-match and one consecutive
-  // no-match is already stored, this turn is the 2nd consecutive failure.
-  let willHandOff = false;
-  if (isNomatch) {
-    try {
-      const prevFailures = await countTrailingFailures(conversationId);
-      willHandOff = prevFailures + 1 >= 2;
-    } catch (e) {
-      console.error('chat: failure count failed:', e);
-    }
-  }
+  // NOMATCH signal is the reportNoAnswer TOOL CALL, not matches.length
+  // (threshold 0.5 lets junk through: junk scores 0.57-0.59, real 0.68-0.77).
+  // The tool call is only known when the stream finishes, so handoff state
+  // is resolved in onFinish and communicated via a deferred that the
+  // response stream awaits before closing.
+  let fallbackInfo: { handoffReady: boolean } | null = null;
+  let resolveTurnEnd: () => void = () => {};
+  const turnEnd = new Promise<void>((resolve) => {
+    resolveTurnEnd = resolve;
+  });
 
-  // Sentinel choice: the stream NEVER contains [[NOMATCH]]. We persist the
-  // prefix for failure counting, but stream clean text and signal no-match
-  // via the X-No-Match response header. No transform stream needed.
-  const persistAssistant = async (text: string) => {
-    try {
-      await saveMessage(
-        conversationId,
-        'assistant',
-        isNomatch ? `${NOMATCH_PREFIX}${text}` : text
-      );
-      if (isNomatch && willHandOff) {
-        await markHandedOff(conversationId);
+  const hooks = {
+    onFinish: async ({
+      text,
+      toolCalls,
+    }: {
+      text: string;
+      toolCalls: { toolName: string }[];
+    }) => {
+      try {
+        // Inside try so every entry path reaches finally/resolveTurnEnd —
+        // a runtime-undefined toolCalls must never hang the response.
+        const noAnswer = toolCalls.some(
+          (tc) => tc.toolName === 'reportNoAnswer'
+        );
+        // On tool turns the model streams no usable text (single-step stops
+        // at the tool call), so persist the server-authoritative fallback.
+        // The stream NEVER contains [[NOMATCH]]; the prefix is a DB-level
+        // marker only, kept so conversation-log queries stay clean.
+        await saveMessage(
+          conversationId,
+          'assistant',
+          noAnswer ? `${NOMATCH_PREFIX} ${FALLBACK_TEXT}` : text
+        );
+        if (noAnswer) {
+          // Current turn is already persisted above, so this total includes it.
+          const total = await countTrailingFailures(conversationId);
+          const handoffReady = total >= 2;
+          fallbackInfo = { handoffReady };
+          if (handoffReady) {
+            await markHandedOff(conversationId);
+          }
+        }
+      } catch (e) {
+        console.error('chat: assistant persist failed:', e);
+      } finally {
+        resolveTurnEnd();
       }
-    } catch (e) {
-      console.error('chat: assistant persist failed:', e);
-    }
+    },
+    onError: (event: { error?: unknown }) => {
+      logStreamError(event.error);
+      // Resolve so the response stream below never hangs on a dead turn.
+      resolveTurnEnd();
+    },
   };
 
   let result: ReturnType<typeof createStream>;
   try {
-    result = createStream(system, cleanMessages, true, async ({ text }) => {
-      await persistAssistant(text);
-    });
+    result = createStream(system, cleanMessages, true, hooks);
   } catch (e) {
     console.error('chat: primary model failed, retrying with Gemini:', e);
     try {
-      result = createStream(system, cleanMessages, false, async ({ text }) => {
-        await persistAssistant(text);
-      });
+      result = createStream(system, cleanMessages, false, hooks);
     } catch (e2) {
       console.error('chat: fallback model failed:', e2);
       return Response.json(
@@ -201,21 +229,45 @@ export async function POST(req: Request) {
   }
 
   // streamText's onFinish fires when the text stream is fully consumed,
-  // which happens inside toUIMessageStream below. This is the documented
+  // which happens inside the merged UI stream below. This is the documented
   // AI SDK v7 pattern.
-  const uiStream = toUIMessageStream({
-    stream: result.stream,
+  const uiStream = createUIMessageStream({
+    execute: async ({ writer }) => {
+      writer.merge(
+        toUIMessageStream({
+          stream: result.stream,
+          tools: { reportNoAnswer },
+          onError: (e) => {
+            logStreamError(e);
+            return 'An error occurred.';
+          },
+        })
+      );
+      // Wait for onFinish (persistence + handoff decision) so the
+      // data-fallback part, when fired, is the last chunk before close.
+      await turnEnd;
+      if (fallbackInfo) {
+        writer.write({
+          type: 'data-fallback',
+          data: {
+            text: FALLBACK_TEXT,
+            handoffReady: fallbackInfo.handoffReady,
+          },
+        });
+      }
+    },
     onError: (e) => {
       logStreamError(e);
       return 'An error occurred.';
     },
   });
 
+  // X-Conversation-Id is the only pre-stream header left: no-match and
+  // handoff are tool-call outcomes, unknowable until the stream completes.
+  // Handoff now travels as a data-fallback stream part (see above).
   const headers: Record<string, string> = {
     'X-Conversation-Id': conversationId,
   };
-  if (isNomatch) headers['X-No-Match'] = '1';
-  if (willHandOff) headers['X-Handed-Off'] = '1';
 
   return createUIMessageStreamResponse({ stream: uiStream, headers });
 }
