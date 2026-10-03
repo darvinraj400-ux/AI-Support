@@ -4,6 +4,13 @@ Reverse-chronological. One section per completed layer.
 Each entry: date, what shipped, any decision worth remembering.
 These bullets become the case study's "technical decisions" section.
 
+## 2026-10-03 — Layer 8: Admin dashboard
+
+- Cookie-gated `/admin` (HMAC-SHA256 token, timing-safe compare, 8h HttpOnly SameSite-Strict). Gate lives in `middleware.ts`, not the layout — layouts can't read the path, gating there would loop `/admin/login`.
+- Stats, FAQ CRUD (re-embeds on Q/A change, so edits are immediately answerable), conversation logs with lazy thread expand.
+- `resend.emails.send` resolves `{data, error}` instead of throwing — checked explicitly in both routes using it.
+- `isAdminRequest` reads the raw Cookie header: route handlers get plain `Request`, not `NextRequest`.
+
 ## 2026-10-03 — Layer 7: Nimbus landing page
 
 - Dark-first marketing page (zinc-950, indigo-500) with nav, hero + CSS dashboard mockup, logo strip, features, pricing, FAQ accordion, footer.
