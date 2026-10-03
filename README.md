@@ -1,40 +1,91 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SupportAI
 
-## Build Log
+Drop-in AI support widget that answers from your own FAQs and hands off to a human when unsure.
 
-See [docs/build-log.md](docs/build-log.md) for the layer-by-layer build history and technical decisions.
+[Demo](TODO_DEMO_URL) · [Case study](/case-study) · [Build log](./docs/build-log.md)
 
-## Getting Started
+<!-- TODO_SCREENSHOT: add widget screenshot as docs/screenshot-widget.png after recording -->
+![SupportAI chat widget](./docs/screenshot-widget.png)
 
-First, run the development server:
+## What it does
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Floating chat widget with streaming answers
+- RAG over your own FAQs (Supabase pgvector, Gemini embeddings)
+- Hands off to a human when the model has no answer (tool-call signal, not threshold)
+- Admin dashboard for FAQ CRUD and conversation review
+
+## Stack
+
+| Layer | Tech | Why |
+|---|---|---|
+| Frontend | Next.js 15 App Router, Tailwind v4, shadcn/ui | Server components, streaming-friendly |
+| LLM | Groq gpt-oss-120b (primary), Gemini 3.1-flash-lite (fallback) | Sub-second latency, provider failover |
+| Embeddings | Gemini gemini-embedding-001, 768-dim | Free tier, aligns with vector(768) |
+| Vector store | Supabase Postgres + pgvector | Free tier, RLS, auth-ready |
+| Streaming | Vercel AI SDK 7 | useChat + data parts |
+| Email | Resend | Handoff notifications |
+| Deploy | Vercel Hobby | Zero-config Next.js |
+
+## Architecture
+
+```text
+Visitor → Chat widget → /api/chat → embed query → match_faqs (pgvector)
+  → build prompt → Groq (fallback: Gemini) → stream → persist
+  → no-answer tool: count → 2nd failure: handoff
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Running locally
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```text
+git clone <repo>
+cd support-ai
+npm install
+cp .env.example .env.local
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Fill in keys — table below
 
-## Learn More
+```text
+npm run seed # populates 10 demo FAQs
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Environment variables
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Var | Where to get it |
+|---|---|
+| NEXT_PUBLIC_SUPABASE_URL | Supabase Project Settings → API |
+| NEXT_PUBLIC_SUPABASE_ANON_KEY | same |
+| SUPABASE_SERVICE_ROLE_KEY | same (secret — server only) |
+| GOOGLE_GENERATIVE_AI_API_KEY | aistudio.google.com/apikey |
+| GROQ_API_KEY | console.groq.com/keys |
+| RESEND_API_KEY | resend.com/api-keys |
+| SUPPORT_EMAIL | your destination inbox |
+| ADMIN_PASSWORD | any string — gates /admin |
+| APP_URL | deployed URL (or http://localhost:3000) |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Database setup
 
-## Deploy on Vercel
+Run the SQL from `docs/schema.sql` in the Supabase SQL editor. It creates
+the extension, 4 tables, the `match_faqs` function, and the public read
+policy on `faqs`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deployment
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Vercel, connect GitHub, set the 9 env vars, done.
+
+## Project status
+
+In v1: widget, RAG chat, tool-call handoff, admin dashboard, landing page,
+case study.
+
+Deliberately out: rate limiting, mid-stream provider fallback, multi-user
+admin, stop button on streaming. Reasoning in the
+[case study](/case-study).
+
+## License
+
+MIT.
+
+Built by Darvin Raj — [GitHub](https://github.com/darvinraj400-ux).
+Nimbus Analytics is a fictional product created for this case study.
