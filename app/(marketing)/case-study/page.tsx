@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import { buttonVariants } from '@/components/ui/button';
 import { DemoButton } from './demo-button';
 
@@ -101,6 +102,19 @@ export default function CaseStudyPage() {
               View source
             </a>
           </div>
+          <figure className="mt-14">
+            <Image
+              src="/case-study/landing.png"
+              alt="Nimbus Analytics landing page with the SupportAI chat widget in the bottom-right corner"
+              width={1901}
+              height={941}
+              sizes="100vw"
+              className="w-full rounded-xl border border-zinc-800 shadow-2xl"
+            />
+            <figcaption className="mt-3 text-center text-sm text-zinc-500">
+              The demo surface. Nimbus is fictional — the widget is the real product.
+            </figcaption>
+          </figure>
         </section>
 
         {/* 1. Problem */}
@@ -159,7 +173,34 @@ export default function CaseStudyPage() {
               </span>
             ))}
           </div>
-          {/* TODO: screenshot of admin dashboard */}
+          <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+            <figure>
+              <Image
+                src="/case-study/widget.png"
+                alt="SupportAI widget streaming a grounded answer from the FAQ knowledge base"
+                width={398}
+                height={341}
+                sizes="(max-width: 768px) 100vw, 50vw"
+                className="w-full rounded-xl border border-zinc-800 shadow-2xl"
+              />
+              <figcaption className="mt-3 text-sm text-zinc-500">
+                A grounded answer, streamed from the FAQ knowledge base.
+              </figcaption>
+            </figure>
+            <figure>
+              <Image
+                src="/case-study/handoff.png"
+                alt="SupportAI offering human handoff after two consecutive questions outside the FAQ scope"
+                width={428}
+                height={689}
+                sizes="(max-width: 768px) 100vw, 50vw"
+                className="w-full rounded-xl border border-zinc-800 shadow-2xl"
+              />
+              <figcaption className="mt-3 text-sm text-zinc-500">
+                Two misses in a row, and it hands off instead of guessing.
+              </figcaption>
+            </figure>
+          </div>
         </section>
 
         {/* 3. Decisions */}
@@ -178,7 +219,6 @@ export default function CaseStudyPage() {
               </div>
             ))}
           </div>
-          {/* TODO: screenshot of widget answering + handing off */}
         </section>
 
         {/* 4. Differently */}
@@ -209,8 +249,35 @@ export default function CaseStudyPage() {
           <h2 className="text-2xl font-semibold tracking-tight text-white md:text-3xl">
             Under the hood
           </h2>
-          <dl className="mt-6 grid max-w-3xl gap-4 text-sm sm:grid-cols-2">
-            {[
+          <div className="mt-8 grid max-w-3xl grid-cols-1 gap-6 md:grid-cols-2">
+            <figure>
+              <Image
+                src="/case-study/admin.png"
+                alt="Admin dashboard showing conversation stats and recent activity"
+                width={1918}
+                height={941}
+                sizes="(max-width: 768px) 100vw, 50vw"
+                className="w-full rounded-xl border border-zinc-800 shadow-2xl"
+              />
+              <figcaption className="mt-3 text-sm text-zinc-500">
+                FAQ CRUD, conversation logs, and handoff stats.
+              </figcaption>
+            </figure>
+            <figure>
+              <Image
+                src="/case-study/mobile.png"
+                alt="SupportAI widget rendered at 375px width"
+                width={329}
+                height={708}
+                sizes="(max-width: 768px) 100vw, 50vw"
+                className="mx-auto w-full max-w-[280px] rounded-xl border border-zinc-800 shadow-2xl"
+              />
+              <figcaption className="mt-3 text-sm text-zinc-500">
+                The widget at 375px. Nothing overflows.
+              </figcaption>
+            </figure>
+          </div>
+          <dl className="mt-8 grid max-w-3xl gap-4 text-sm sm:grid-cols-2">            {[
               ['Codebase', '~3,400 lines across ~70 files, 8 commits'],
               ['Verify', 'npm run seed · tsc --noEmit · npm run build, all green'],
               ['Fallback order', 'Groq gpt-oss-120b, then Gemini 3.1-flash-lite'],
