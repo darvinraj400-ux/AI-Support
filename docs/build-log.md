@@ -4,12 +4,24 @@ Reverse-chronological. One section per completed layer.
 Each entry: date, what shipped, any decision worth remembering.
 These bullets become the case study's "technical decisions" section.
 
+## 2026-10-03 — Layer 6: Chat widget + handoff endpoint
+
+- Built floating widget (`ChatWidget`/`ChatPanel`/`MessageBubble`/`HandoffForm`) on `useChat` + `DefaultChatTransport` from `ai`.
+- `DefaultChatTransport` sends `UIMessage[]`, the route expects `[{role, content}]` — reshaped client-side via `prepareSendMessagesRequest`, route untouched.
+- `POST /api/handoff` updates the pre-existing `handoffs` row (insert fallback), Resend notify is best-effort: SDK resolves `{data, error}` instead of throwing, so both paths are logged, request still 200s.
+- Widget renders `data-fallback` text in place of empty tool-turn content; reasoning/tool parts hidden defensively.
+
 ## 2026-10-03 — Layer 5: Tool-call handoff signaling
 
 - Replaced threshold-based no-answer detection with the `reportNoAnswer` tool call as the signal (junk queries scored 0.57–0.59 vs real 0.68–0.77 — too thin to threshold).
 - Server-authoritative `FALLBACK_TEXT` persisted as `[[NOMATCH]] <text>` and streamed as a `data-fallback` part with `handoffReady` flag; `data-handoff` removed.
 - `markHandedOff` mirrors into `handoffs` (log-only on failure); `conversations.handed_off` remains source of truth.
 - gpt-oss stops after the tool call (no `execute` → single step), so tool turns stream no text — widget will render from the `data-fallback` part.
+
+## 2026-10-03 — Layer 6 fix pass: review findings
+
+- Panel stays mounted (CSS `hidden` toggle) so closing no longer wipes `useChat` history; request reshape reuses `data-fallback` text for tool-only turns and skips empty turns.
+- `/api/handoff`: `sessionId` must be a UUID, unknown sessions return `{ok:true}` (no enumeration oracle), `reason` capped at 1000 chars, admin email link from allowlisted `APP_URL` (omitted if unset) instead of request host.
 
 ## 2026-10-02 — Layer 4: Provider stack flip
 
