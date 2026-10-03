@@ -1,12 +1,19 @@
 "use client";
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ChatPanel } from './ChatPanel';
 
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
+
+  // Landing page "Ask the AI" buttons open the widget via this event.
+  useEffect(() => {
+    const handleOpen = () => setOpen(true);
+    window.addEventListener('supportai:open', handleOpen);
+    return () => window.removeEventListener('supportai:open', handleOpen);
+  }, []);
 
   return (
     <>

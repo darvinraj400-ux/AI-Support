@@ -4,6 +4,14 @@ Reverse-chronological. One section per completed layer.
 Each entry: date, what shipped, any decision worth remembering.
 These bullets become the case study's "technical decisions" section.
 
+## 2026-10-03 — Layer 7: Nimbus landing page
+
+- Dark-first marketing page (zinc-950, indigo-500) with nav, hero + CSS dashboard mockup, logo strip, features, pricing, FAQ accordion, footer.
+- Widget moved to `(marketing)/layout.tsx` so it persists across landing + case study but never admin.
+- Pricing/FAQ copy mirrors `seed-faqs.ts` exactly — page and widget answers stay consistent (self-demonstrating RAG).
+- shadcn here is Base-UI based: no `asChild` on Button (used `buttonVariants` for links), Accordion takes `value` not `type="single"`.
+- `supportai:open` CustomEvent wires "Ask the AI" buttons to the widget.
+
 ## 2026-10-03 — Layer 6: Chat widget + handoff endpoint
 
 - Built floating widget (`ChatWidget`/`ChatPanel`/`MessageBubble`/`HandoffForm`) on `useChat` + `DefaultChatTransport` from `ai`.
