@@ -2,10 +2,9 @@
 
 Drop-in AI support widget that answers from your own FAQs and hands off to a human when unsure.
 
-[Demo](TODO_DEMO_URL) · [Case study](/case-study) · [Build log](./docs/build-log.md)
+[Demo](https://support-ai-three-gold.vercel.app) · [Case study](https://support-ai-three-gold.vercel.app/case-study) · [Build log](./docs/build-log.md)
 
-<!-- TODO_SCREENSHOT: add widget screenshot as docs/screenshot-widget.png after recording -->
-![SupportAI chat widget](./docs/screenshot-widget.png)
+![SupportAI chat widget](./public/case-study/widget.png)
 
 ## What it does
 
