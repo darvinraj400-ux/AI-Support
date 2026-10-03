@@ -4,6 +4,18 @@ Reverse-chronological. One section per completed layer.
 Each entry: date, what shipped, any decision worth remembering.
 These bullets become the case study's "technical decisions" section.
 
+## 2026-10-03 — Layer 10: Polish (a11y, errors, SEO)
+
+- Case-study "Try the live demo" dispatches `supportai:open` in place (client island; page stays a server component for metadata).
+- Landing page back to server component with client button islands, enabling per-route metadata, robots.txt, sitemap.
+- shadcn is Base-UI: `onClick` on a server-rendered anchor fails the build; placeholder links stay href-only.
+- Widget hardening: scroll-stick respects scroll-up, form hides on next message, IME guard, dialog roles/labels, break-words bubbles.
+
+## 2026-10-03 — Layer 9: Case study page
+
+- Engineering write-up distilled from the build log: 6 decisions with numbers, 3 honest would-do-differently items.
+- Widget mounted via `(marketing)/layout.tsx`, so the case study page demos itself. Screenshot TODO markers left for later.
+
 ## 2026-10-03 — Layer 8: Admin dashboard
 
 - Cookie-gated `/admin` (HMAC-SHA256 token, timing-safe compare, 8h HttpOnly SameSite-Strict). Gate lives in `middleware.ts`, not the layout — layouts can't read the path, gating there would loop `/admin/login`.

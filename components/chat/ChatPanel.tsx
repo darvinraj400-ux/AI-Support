@@ -6,6 +6,7 @@ import { DefaultChatTransport } from 'ai';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Loader2, Send, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { MessageBubble, getFallbackData } from './MessageBubble';
 import { HandoffForm } from './HandoffForm';
@@ -100,7 +101,12 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
 
   useEffect(() => {
     const el = listRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    if (!el) return;
+    // Only yank to bottom if the user is already near it; never pull
+    // them away from history they scrolled up to re-read.
+    const nearBottom =
+      el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    if (nearBottom) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages, status]);
 
   function submit() {
@@ -114,9 +120,12 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
     .reverse()
     .find((m) => m.role === 'assistant');
   const fallback = lastAssistant ? getFallbackData(lastAssistant) : null;
-  const showHandoffForm = fallback?.handoffReady === true;
-
   const lastMessage = messages[messages.length - 1];
+  // Hide once the user sends another message: the form refers to the
+  // latest assistant turn only, never a stale one.
+  const showHandoffForm =
+    fallback?.handoffReady === true && lastMessage?.role === 'assistant';
+
   const awaitingFirstToken =
     busy &&
     lastMessage?.role === 'assistant' &&
@@ -124,6 +133,8 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
 
   return (
     <motion.div
+      role="dialog"
+      aria-label="Support chat"
       initial={false}
       animate={
         open
@@ -148,7 +159,7 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
       <div ref={listRef} className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-3">
         {messages.length === 0 && (
           <p className="px-1 py-6 text-center text-sm text-muted-foreground">
-            Hi! Ask me about plans, trials, or integrations.
+            Hi — ask me anything about Nimbus.
           </p>
         )}
         {messages.map((m) => (
@@ -174,11 +185,15 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
       </div>
 
       <div className="flex items-end gap-2 border-t p-3">
+        <Label htmlFor="chat-input" className="sr-only">
+          Ask about Nimbus
+        </Label>
         <Textarea
+          id="chat-input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               submit();
             }

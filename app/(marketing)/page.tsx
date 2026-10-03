@@ -1,17 +1,19 @@
-"use client";
-
+import type { Metadata } from 'next';
 import { Bot, Layers, Zap } from 'lucide-react';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/button';
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
+import { AskAiButton, AskAiLink } from './ask-ai-button';
 
-function openChat() {
-  window.dispatchEvent(new CustomEvent('supportai:open'));
-}
+export const metadata: Metadata = {
+  title: 'Nimbus Analytics — product analytics with AI support',
+  description:
+    'Real-time product analytics with an AI assistant that answers from the docs and hands off to a human when unsure.',
+};
 
 const FAQS = [
   {
@@ -173,14 +175,7 @@ export default function MarketingPage() {
             >
               Start free trial
             </a>
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={openChat}
-              className="border-zinc-700 bg-transparent text-zinc-100 hover:bg-zinc-800 hover:text-white"
-            >
-              Ask the AI
-            </Button>
+            <AskAiButton className="border-zinc-700 bg-transparent text-zinc-100 hover:bg-zinc-800 hover:text-white" />
           </div>
           <p className="mt-5 text-xs text-zinc-500">
             14-day free trial · No credit card · Cancel anytime
@@ -242,8 +237,7 @@ export default function MarketingPage() {
                   ))}
                 </ul>
                 <a
-                  href="#"
-                  onClick={(e) => e.preventDefault()}
+                  href="#pricing"
                   className={buttonVariants({
                     variant: plan.popular ? 'default' : 'outline',
                     className: plan.popular
@@ -261,17 +255,7 @@ export default function MarketingPage() {
           </p>
           <p className="mt-2 text-center text-sm text-zinc-500">
             Need more? Extra seats are $5/mo.{' '}
-            <a
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                openChat();
-              }}
-              className="text-indigo-400 underline-offset-4 hover:underline"
-            >
-              Ask the AI
-            </a>{' '}
-            for details.
+            <AskAiLink /> for details.
           </p>
         </section>
 
