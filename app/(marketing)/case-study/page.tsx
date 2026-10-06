@@ -58,15 +58,15 @@ const FLOW = [
 
 export default function CaseStudyPage() {
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+    <div className="min-h-screen bg-background text-foreground">
       <main className="mx-auto max-w-[1200px] px-6">
         {/* Hero */}
         <section className="py-20 md:py-28">
-          <p className="text-sm font-medium tracking-wide text-indigo-400">Case Study</p>
-          <h1 className="mt-3 max-w-[20ch] text-4xl font-semibold tracking-tight text-white md:text-6xl">
+          <p className="eyebrow">Case Study</p>
+          <h1 className="mt-3 max-w-[20ch] text-4xl font-medium text-foreground md:text-6xl">
             SupportAI — a drop-in AI support widget that knows when to hand off
           </h1>
-          <p className="mt-5 max-w-[70ch] text-base leading-relaxed text-zinc-400">
+          <p className="mt-5 max-w-[70ch] text-base leading-relaxed text-foreground-muted">
             SupportAI answers product questions from a real FAQ knowledge base over
             pgvector, streams the answer into a chat widget, and escalates to a human
             after two consecutive misses. The non-trivial part is not any one piece.
@@ -74,16 +74,16 @@ export default function CaseStudyPage() {
           </p>
           <dl className="mt-8 flex flex-wrap gap-x-10 gap-y-3 text-sm">
             <div>
-              <dt className="text-zinc-500">Role</dt>
-              <dd className="mt-1 text-zinc-200">Solo — design, engineering, documentation.</dd>
+              <dt className="eyebrow">Role</dt>
+              <dd className="mt-1 text-foreground">Solo — design, engineering, documentation.</dd>
             </div>
             <div>
-              <dt className="text-zinc-500">Stack</dt>
-              <dd className="mt-1 text-zinc-200">Next.js 15 · Supabase pgvector · Groq / Gemini · Vercel.</dd>
+              <dt className="eyebrow">Stack</dt>
+              <dd className="mt-1 text-foreground">Next.js 15 · Supabase pgvector · Groq / Gemini · Vercel.</dd>
             </div>
             <div>
-              <dt className="text-zinc-500">Timeline</dt>
-              <dd className="mt-1 text-zinc-200">Built over 2 days.</dd>
+              <dt className="eyebrow">Timeline</dt>
+              <dd className="mt-1 text-foreground">Built over 2 days.</dd>
             </div>
           </dl>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -96,7 +96,7 @@ export default function CaseStudyPage() {
                 size: 'lg',
                 variant: 'outline',
                 className:
-                  'border-zinc-700 bg-transparent text-zinc-100 hover:bg-zinc-800 hover:text-white',
+                  'border-border bg-transparent text-foreground hover:bg-surface-hover hover:text-foreground',
               })}
             >
               View source
@@ -109,20 +109,20 @@ export default function CaseStudyPage() {
               width={1901}
               height={941}
               sizes="100vw"
-              className="w-full rounded-xl border border-zinc-800 shadow-2xl"
+              className="w-full rounded-lg border border-border shadow-none"
             />
-            <figcaption className="mt-3 text-center text-sm text-zinc-500">
+            <figcaption className="mt-3 text-center text-sm text-foreground-subtle">
               The demo surface. Nimbus is fictional — the widget is the real product.
             </figcaption>
           </figure>
         </section>
 
         {/* 1. Problem */}
-        <section className="border-t border-zinc-800 py-16">
-          <h2 className="text-2xl font-semibold tracking-tight text-white md:text-3xl">
+        <section className="border-t border-border py-16">
+          <h2 className="text-2xl font-medium text-foreground md:text-3xl">
             The problem
           </h2>
-          <div className="mt-6 flex max-w-[70ch] flex-col gap-4 text-base leading-relaxed text-zinc-400">
+          <div className="mt-6 flex max-w-[70ch] flex-col gap-4 text-base leading-relaxed text-foreground-muted">
             <p>
               A small SaaS does not need a chatbot that guesses. It needs something
               narrower: answer the questions the docs already cover, word for word,
@@ -145,11 +145,11 @@ export default function CaseStudyPage() {
         </section>
 
         {/* 2. Architecture */}
-        <section className="border-t border-zinc-800 py-16">
-          <h2 className="text-2xl font-semibold tracking-tight text-white md:text-3xl">
+        <section className="border-t border-border py-16">
+          <h2 className="text-2xl font-medium text-foreground md:text-3xl">
             The architecture
           </h2>
-          <p className="mt-6 max-w-[70ch] text-base leading-relaxed text-zinc-400">
+          <p className="mt-6 max-w-[70ch] text-base leading-relaxed text-foreground-muted">
             One request flows through eleven steps. Embeddings come from Gemini,
             generation defaults to Groq with a Gemini fallback, and every turn is
             persisted to Postgres before the stream closes.
@@ -160,12 +160,12 @@ export default function CaseStudyPage() {
           >
             {FLOW.map((step, i) => (
               <span key={step} className="flex items-center gap-2">
-                {i > 0 && <span aria-hidden className="text-zinc-600">→</span>}
+                {i > 0 && <span aria-hidden className="text-foreground-subtle">→</span>}
                 <span
                   className={`rounded-lg border px-3 py-1.5 font-mono text-xs ${
                     step.startsWith('2nd failure')
-                      ? 'border-indigo-500 bg-indigo-500/10 text-indigo-300'
-                      : 'border-zinc-800 bg-zinc-900 text-zinc-300'
+                      ? 'border-accent-idle bg-accent-idle/10 text-accent-idle'
+                      : 'border-border bg-surface text-foreground'
                   }`}
                 >
                   {step}
@@ -181,9 +181,9 @@ export default function CaseStudyPage() {
                 width={398}
                 height={341}
                 sizes="(max-width: 768px) 100vw, 50vw"
-                className="w-full rounded-xl border border-zinc-800 shadow-2xl"
+                className="w-full rounded-lg border border-border shadow-none"
               />
-              <figcaption className="mt-3 text-sm text-zinc-500">
+              <figcaption className="mt-3 text-sm text-foreground-subtle">
                 A grounded answer, streamed from the FAQ knowledge base.
               </figcaption>
             </figure>
@@ -194,9 +194,9 @@ export default function CaseStudyPage() {
                 width={428}
                 height={689}
                 sizes="(max-width: 768px) 100vw, 50vw"
-                className="w-full rounded-xl border border-zinc-800 shadow-2xl"
+                className="w-full rounded-lg border border-border shadow-none"
               />
-              <figcaption className="mt-3 text-sm text-zinc-500">
+              <figcaption className="mt-3 text-sm text-foreground-subtle">
                 Two misses in a row, and it hands off instead of guessing.
               </figcaption>
             </figure>
@@ -204,16 +204,16 @@ export default function CaseStudyPage() {
         </section>
 
         {/* 3. Decisions */}
-        <section className="border-t border-zinc-800 py-16">
-          <h2 className="text-2xl font-semibold tracking-tight text-white md:text-3xl">
+        <section className="border-t border-border py-16">
+          <h2 className="text-2xl font-medium text-foreground md:text-3xl">
             Technical decisions
           </h2>
           <div className="mt-8 flex max-w-[70ch] flex-col gap-8">
             {DECISIONS.map((d) => (
               <div key={d.title}>
-                <h3 className="font-semibold text-white">{d.title}</h3>
-                <p className="mt-2 text-base leading-relaxed text-zinc-400">{d.body}</p>
-                <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-900 px-4 py-2.5 font-mono text-xs text-zinc-300">
+                <h3 className="font-semibold text-foreground">{d.title}</h3>
+                <p className="mt-2 text-base leading-relaxed text-foreground-muted">{d.body}</p>
+                <pre className="mt-3 overflow-x-auto rounded-lg bg-surface px-4 py-2.5 font-mono text-xs text-foreground">
                   {d.code}
                 </pre>
               </div>
@@ -222,11 +222,11 @@ export default function CaseStudyPage() {
         </section>
 
         {/* 4. Differently */}
-        <section className="border-t border-zinc-800 py-16">
-          <h2 className="text-2xl font-semibold tracking-tight text-white md:text-3xl">
+        <section className="border-t border-border py-16">
+          <h2 className="text-2xl font-medium text-foreground md:text-3xl">
             What I would do differently
           </h2>
-          <ul className="mt-6 flex max-w-[70ch] list-disc flex-col gap-3 pl-5 text-base leading-relaxed text-zinc-400">
+          <ul className="mt-6 flex max-w-[70ch] list-disc flex-col gap-3 pl-5 text-base leading-relaxed text-foreground-muted">
             <li>
               Mid-stream provider fallback. Today only a synchronous failure fails
               over; a 404 halfway through a stream loses the turn. The stream
@@ -245,8 +245,8 @@ export default function CaseStudyPage() {
         </section>
 
         {/* 5. Under the hood */}
-        <section className="border-t border-zinc-800 py-16">
-          <h2 className="text-2xl font-semibold tracking-tight text-white md:text-3xl">
+        <section className="border-t border-border py-16">
+          <h2 className="text-2xl font-medium text-foreground md:text-3xl">
             Under the hood
           </h2>
           <div className="mt-8 grid max-w-3xl grid-cols-1 gap-6 md:grid-cols-2">
@@ -257,9 +257,9 @@ export default function CaseStudyPage() {
                 width={1918}
                 height={941}
                 sizes="(max-width: 768px) 100vw, 50vw"
-                className="w-full rounded-xl border border-zinc-800 shadow-2xl"
+                className="w-full rounded-lg border border-border shadow-none"
               />
-              <figcaption className="mt-3 text-sm text-zinc-500">
+              <figcaption className="mt-3 text-sm text-foreground-subtle">
                 FAQ CRUD, conversation logs, and handoff stats.
               </figcaption>
             </figure>
@@ -270,9 +270,9 @@ export default function CaseStudyPage() {
                 width={329}
                 height={708}
                 sizes="(max-width: 768px) 100vw, 50vw"
-                className="mx-auto w-full max-w-[280px] rounded-xl border border-zinc-800 shadow-2xl"
+                className="mx-auto w-full max-w-[280px] rounded-lg border border-border shadow-none"
               />
-              <figcaption className="mt-3 text-sm text-zinc-500">
+              <figcaption className="mt-3 text-sm text-foreground-subtle">
                 The widget at 375px. Nothing overflows.
               </figcaption>
             </figure>
@@ -283,9 +283,9 @@ export default function CaseStudyPage() {
               ['Fallback order', 'Groq gpt-oss-120b, then Gemini 3.1-flash-lite'],
               ['Cost', 'Zero paid tools: Gemini, Groq, Supabase, Vercel, Resend, GitHub free tiers'],
             ].map(([term, def]) => (
-              <div key={term} className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
-                <dt className="text-zinc-500">{term}</dt>
-                <dd className="mt-1 font-mono text-xs leading-relaxed text-zinc-300">{def}</dd>
+              <div key={term} className="rounded-xl border border-border bg-surface/50 p-4">
+                <dt className="eyebrow">{term}</dt>
+                <dd className="mt-1 font-mono text-xs leading-relaxed text-foreground">{def}</dd>
               </div>
             ))}
           </dl>
@@ -293,20 +293,20 @@ export default function CaseStudyPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-zinc-800">
+      <footer className="border-t border-border">
         <div className="mx-auto flex max-w-[1200px] flex-col gap-2 px-6 py-8 text-sm">
-          <p className="text-zinc-300">
+          <p className="text-foreground">
             Built by{' '}
             <a
               href="https://github.com/darvinraj400-ux"
               target="_blank"
               rel="noreferrer"
-              className="text-indigo-400 underline-offset-4 hover:underline"
+              className="text-accent-idle underline-offset-4 hover:underline"
             >
               Darvin Raj
             </a>
           </p>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-foreground-subtle">
             Nimbus Analytics is a fictional product created for this case study.
           </p>
         </div>

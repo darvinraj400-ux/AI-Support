@@ -3,14 +3,9 @@
 import { Button } from '@/components/ui/button';
 import { dispatchOpenChat } from './open-chat';
 
-export function AskAiButton({ className }: { className?: string }) {
+export function AskAiButton() {
   return (
-    <Button
-      size="lg"
-      variant="outline"
-      onClick={dispatchOpenChat}
-      className={className}
-    >
+    <Button size="lg" variant="outline" onClick={dispatchOpenChat}>
       Ask the AI
     </Button>
   );
@@ -24,7 +19,7 @@ export function AskAiLink() {
         e.preventDefault();
         dispatchOpenChat();
       }}
-      className="text-indigo-400 underline-offset-4 hover:underline"
+      className="text-accent-idle underline-offset-4 hover:underline"
     >
       Ask the AI
     </a>

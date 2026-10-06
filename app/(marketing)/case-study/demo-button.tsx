@@ -10,7 +10,6 @@ export function DemoButton() {
       onClick={dispatchOpenChat}
       className={buttonVariants({
         size: 'lg',
-        className: 'bg-indigo-500 text-white hover:bg-indigo-400',
       })}
     >
       Try the live demo
