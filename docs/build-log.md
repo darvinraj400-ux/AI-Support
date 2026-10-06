@@ -4,6 +4,13 @@ Reverse-chronological. One section per completed layer.
 Each entry: date, what shipped, any decision worth remembering.
 These bullets become the case study's "technical decisions" section.
 
+## 2026-10-04 — Layer A: AI Core foundation (no 3D)
+
+- Obsidian token system in globals.css (`@theme inline`), shadcn primitives remapped; admin keeps literal zinc classes, chat inherits via tokens.
+- Base-UI accordion has no usable height transition (Panel unmounts; keepMounted exists but needs external open state), so the FAQ is a controlled island with framer-motion height/opacity + rotating chevron.
+- Measured contrast: body 17.4:1, muted 5.8:1. Mobile 375px: zero overflow by construction + headless measurement.
+- shadcn here is Base-UI: Button has no `asChild` (links use `buttonVariants`), `onClick` on server-rendered anchors fails the build.
+
 ## 2026-10-03 — Layer 10: Polish (a11y, errors, SEO)
 
 - Case-study "Try the live demo" dispatches `supportai:open` in place (client island; page stays a server component for metadata).
