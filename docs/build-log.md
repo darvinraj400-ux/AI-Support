@@ -4,6 +4,14 @@ Reverse-chronological. One section per completed layer.
 Each entry: date, what shipped, any decision worth remembering.
 These bullets become the case study's "technical decisions" section.
 
+## 2026-10-04 — Layer B: Intelligence Core (single R3F scene)
+
+- One lazy-mounted canvas behind the hero: diffuse breathing center, faint icosahedral structure, 4 irregular tilted rings, seeded particle field, thinking-only connection bands.
+- Thinking is a 4s envelope (contract → pulse → ONE expanding ring → connections → cyan → idle), all damped interpolation, no snaps.
+- three.js stays out of first load (172 vs 171 kB, +1 kB): everything behind a dynamic ssr:false boundary.
+- Headless SwiftShader reports low tier, so connection bands were verified with a temporary forced-high tier (reverted); emit ring and contraction confirmed in screenshots.
+- Temp hero-click trigger removed before commit. Scroll/tab/reduced-motion all pause; mounted-gate prevents hydration mismatch for reduced-motion users.
+
 ## 2026-10-04 — Layer A: AI Core foundation (no 3D)
 
 - Obsidian token system in globals.css (`@theme inline`), shadcn primitives remapped; admin keeps literal zinc classes, chat inherits via tokens.
