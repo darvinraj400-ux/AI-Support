@@ -4,6 +4,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { Pulse } from '@/components/ui/Pulse';
 import { AskAiButton, AskAiLink } from './ask-ai-button';
 import { FaqAccordion } from './faq-accordion';
+import { CoreCanvas } from '@/components/core/CoreCanvas';
 import { SiteNav } from './nav';
 
 export const metadata: Metadata = {
@@ -89,7 +90,7 @@ function DashboardMockup() {
   return (
     <div
       aria-hidden
-      className="mx-auto mt-14 w-full max-w-3xl rounded-lg border border-border bg-surface p-5 text-left"
+      className="mx-auto mt-14 w-full max-w-3xl rounded-lg border border-border bg-surface p-5 text-left opacity-40"
     >
       <div className="flex items-center gap-1.5">
         <span className="h-2.5 w-2.5 rounded-full bg-border-strong" />
@@ -133,7 +134,11 @@ export default function MarketingPage() {
 
       <main className="mx-auto max-w-[1200px] px-6">
         {/* 2. Hero */}
-        <section className="py-20 text-center md:py-28">
+        <section id="hero" className="relative py-20 text-center md:py-28">
+          <div aria-hidden className="absolute inset-0 z-0">
+            <CoreCanvas />
+          </div>
+          <div className="relative z-10">
           <h1 className="text-4xl font-medium text-foreground md:text-6xl">
             Analytics that answers back.
           </h1>
@@ -155,6 +160,7 @@ export default function MarketingPage() {
             14-day free trial · No credit card · Cancel anytime
           </p>
           <DashboardMockup />
+          </div>
         </section>
 
         <Pulse variant="divider" />
