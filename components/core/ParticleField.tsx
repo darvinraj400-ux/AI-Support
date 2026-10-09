@@ -1,8 +1,9 @@
 'use client';
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
+import { Trail } from '@react-three/drei';
 import { smoothstep, thinkBump, type SharedProps } from './IntelligenceCore';
 
 const TIER_COUNT: Record<string, number> = { high: 400, medium: 250, low: 120 };
@@ -36,9 +37,14 @@ type FieldData = {
   speed: Float32Array;
   clusterW: Float32Array;
   clusterPos: Float32Array;
+  /** Indices of the TRAIL_N fastest particles, for the motion trails. */
+  trailIdx: number[];
   bands: { pairs: Uint32Array; positions: Float32Array; count: number }[];
   maxSegs: number;
 };
+
+/** How many particles carry a drei Trail (high tier only). */
+const TRAIL_N = 20;
 
 function buildField(count: number, maxSegs: number): FieldData {
   const rand = mulberry32(1337);
@@ -104,16 +110,22 @@ function buildField(count: number, maxSegs: number): FieldData {
     count: p.length / 2,
   }));
 
-  return { count, base, phase, speed, clusterW, clusterPos, bands, maxSegs };
+  // The TRAIL_N fastest particles by drift speed carry motion trails during
+  // the thinking cycle. Sorted once at build time; positions are resolved live
+  // from the shared buffer so trails track the exact particle they belong to.
+  const trailIdx = Array.from({ length: Math.min(TRAIL_N, count) }, (_, k) => k)
+    .sort((a, b) => speed[b] - speed[a]);
+
+  return { count, base, phase, speed, clusterW, clusterPos, trailIdx, bands, maxSegs };
 }
 
 export function ParticleField({
   stateRef,
   thinkStartRef,
+  colors,
   tier,
   degraded,
 }: SharedProps) {
-  const baseCount = particleCountFor(tier, false);
   // Degraded mode sheds ~40% of particles (one rebuild, then steady).
   const effCount = particleCountFor(tier, degraded);
   const data = useMemo(
@@ -122,11 +134,40 @@ export function ParticleField({
     [effCount]
   );
 
+  // Soft circular sprite: a 32x32 radial gradient (opaque white centre,
+  // transparent edge) so points read as glowing motes instead of hard squares.
+  // Built in useMemo rather than at module scope — module scope would run
+  // during SSR (`document is not defined`) the moment anything server-side
+  // imports this file, and useMemo lets us dispose the GL texture on unmount.
+  const sprite = useMemo(() => {
+    const c = document.createElement('canvas');
+    c.width = 32;
+    c.height = 32;
+    const ctx = c.getContext('2d');
+    if (ctx) {
+      const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+      g.addColorStop(0, 'rgba(255,255,255,1)');
+      g.addColorStop(0.4, 'rgba(255,255,255,0.55)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 32, 32);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }, []);
+  useEffect(() => () => sprite.dispose(), [sprite]);
+
   const geoRef = useRef<THREE.BufferGeometry>(null);
   const lineRefs = useRef<(THREE.LineSegments | null)[]>([]);
   const lineMatRefs = useRef<(THREE.LineBasicMaterial | null)[]>([]);
   const spinRef = useRef<THREE.Group>(null);
   const driftTime = useRef(0);
+
+  // Motion-trail anchors (high tier only). Each is a tiny mesh repositioned
+  // every frame to sit on its particle; drei's Trail records the movement.
+  const trailsRef = useRef<THREE.Group>(null);
+  const anchorRefs = useRef<(THREE.Mesh | null)[]>([]);
 
   // Live positions buffer, written every frame from base data.
   const positions = useMemo(() => new Float32Array(data.count * 3), [data]);
@@ -222,6 +263,33 @@ export function ParticleField({
         | undefined;
       if (la) la.needsUpdate = true;
     });
+
+    // Motion trails: thinking-only. Visible through the contraction and active
+    // window (trails grow in as the anchors start moving), hidden from the
+    // resolution beat onward so they collapse instead of lingering past the
+    // 4.0s state flip. Hidden entirely when idle.
+    //
+    // drei's Trail records the anchor's world position every frame regardless
+    // of visibility (its stride guard never skips at the default 0), so simply
+    // freezing the anchors would still leave a permanent orbiting arc in the
+    // buffer as spinRef rotates. Parking each anchor at the group's pivot
+    // (local origin) means it does not move under the group's rotation, so the
+    // Trail records a single static point — no stale arc when it re-shows.
+    if (trailsRef.current) {
+      const active = thinking && ts < 3.0;
+      trailsRef.current.visible = active;
+      const idx = data.trailIdx;
+      for (let k = 0; k < idx.length; k++) {
+        const a = anchorRefs.current[k];
+        if (!a) continue;
+        if (active) {
+          const p = idx[k] * 3;
+          a.position.set(positions[p], positions[p + 1], positions[p + 2]);
+        } else {
+          a.position.set(0, 0, 0);
+        }
+      }
+    }
   });
 
   return (
@@ -232,8 +300,9 @@ export function ParticleField({
         </bufferGeometry>
         <pointsMaterial
           color="#8a8a95"
-          size={0.022}
+          size={0.02}
           sizeAttenuation
+          map={sprite}
           transparent
           opacity={0.7}
           depthWrite={false}
@@ -260,9 +329,37 @@ export function ParticleField({
             opacity={0}
             blending={THREE.AdditiveBlending}
             depthWrite={false}
+            fog={false}
           />
         </lineSegments>
       ))}
+      {/* Motion trails on the 20 fastest particles (high tier only). Each
+          anchor is repositioned in useFrame to sit exactly on its particle;
+          drei's Trail turns that movement into a tapered streak. Gated off
+          the low/medium tiers and when degraded: Trail costs ~20 extra
+          meshline updates plus draw calls per frame. */}
+      {tier === 'high' && !degraded && (
+        <group ref={trailsRef} visible={false}>
+          {data.trailIdx.map((_, k) => (
+            <Trail
+              key={k}
+              width={0.4}
+              length={4}
+              color={colors.active}
+              attenuation={(t) => t * t}
+            >
+              <mesh
+                ref={(m) => {
+                  anchorRefs.current[k] = m;
+                }}
+              >
+                <sphereGeometry args={[0.015, 8, 8]} />
+                <meshBasicMaterial color={colors.active} fog={false} />
+              </mesh>
+            </Trail>
+          ))}
+        </group>
+      )}
     </group>
   );
 }

@@ -6,13 +6,20 @@ import { useFrame } from '@react-three/fiber';
 import { smoothstep, type SharedProps } from './IntelligenceCore';
 
 // Diffuse luminous center: the primary (and only strong) light source.
-// Idle: violet breathing 0.55 → 1.0 over ~4s. Thinking: damps toward blue,
-// brief cyan resolution beat, then eases back — no snaps anywhere.
+//
+// Idle: violet, nominal emissive 1.2, breathing on a 4s cycle. Section 10 asks
+// for a 0.8 -> 1.3 breath, so `breath` is that range and the nominal 1.2 from
+// Section 5 is applied as a level on top (breath is normalised by its 1.05
+// centre, giving an idle band of ~0.91 – 1.49 around the 1.2 target).
+//
+// Thinking: contracts (dips to 0.75x), flashes to a 3.5 peak at the ~1.5s
+// pulse beat, then eases back — no snaps anywhere. The flash is sized so the
+// peak lands on 3.5: 1.2 (level) * 0.75 (contraction) * 3.9 (flash) = 3.5.
 export function CoreCenter({ stateRef, thinkStartRef, colors }: SharedProps) {
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
   const haloRef = useRef<THREE.MeshBasicMaterial>(null);
   const lightRef = useRef<THREE.PointLight>(null);
-  const groupRef = useRef<THREE.Group>(null);
+  const whiteRef = useRef<THREE.Mesh>(null);
 
   const tmp = useMemo(() => new THREE.Color(), []);
   const target = useMemo(() => new THREE.Color(), []);
@@ -22,47 +29,52 @@ export function CoreCenter({ stateRef, thinkStartRef, colors }: SharedProps) {
     const thinking = stateRef.current === 'thinking';
     const ts = (performance.now() - thinkStartRef.current) / 1000;
 
-    // Idle breathing: 0.55 → 1.0 over a 4s cycle. Written as a centered
-    // sine (0.775 ± 0.225) so the trough never approaches blackout the way a
-    // literal `0.55 + 0.45 * sin` would.
-    const breath = 0.775 + 0.225 * Math.sin((2 * Math.PI * t) / 4);
+    // Breath in [0.8, 1.3] (Section 10), centred at 1.05 so it never
+    // approaches blackout the way a literal `0.8 + 0.5*sin` would.
+    const breath = 1.05 + 0.25 * Math.sin((2 * Math.PI * t) / 4);
+    const breathNorm = breath / 1.05;
 
     if (!thinking) {
       target.copy(colors.idle);
     } else {
-      // Violet → blue through the active window, cyan at resolution.
+      // Violet -> blue through the active window, cyan at resolution.
       target.copy(colors.idle).lerp(colors.active, smoothstep(1.0, 2.2, ts));
       target.lerp(colors.response, smoothstep(3.2, 3.6, ts));
     }
 
     // Exponential ease toward the target: continuous across state flips.
-    // (Fixed per-frame factor; frame-rate independent enough at 30-120fps
-    // for a 0.6s time constant.)
     const mat = matRef.current;
     if (mat) {
       mat.emissive.copy(tmp.copy(mat.emissive).lerp(target, 0.08));
-      const dim = thinking ? 1 - 0.25 * smoothstep(0, 1.2, ts) : 1;
-      const beat = thinking
-        ? 1 + 0.8 * Math.exp(-Math.pow((ts - 1.5) / 0.18, 2))
+
+      const idleLevel = 1.2;
+      const contraction = 1 - 0.25 * smoothstep(0, 1.2, ts);
+      const flash = thinking
+        ? 1 + 2.9 * Math.exp(-Math.pow((ts - 1.5) / 0.18, 2))
         : 1;
-      mat.emissiveIntensity = breath * dim * beat;
+      mat.emissiveIntensity = thinking
+        ? idleLevel * breathNorm * contraction * flash
+        : idleLevel * breathNorm;
     }
     if (haloRef.current) {
-      haloRef.current.opacity = (thinking ? 0.17 : 0.1) * breath;
+      haloRef.current.opacity = (thinking ? 0.17 : 0.1) * breathNorm;
       haloRef.current.color.copy(mat?.emissive ?? target);
     }
     if (lightRef.current) {
       lightRef.current.color.copy(mat?.emissive ?? target);
-      lightRef.current.intensity = 2.2 * breath;
+      lightRef.current.intensity = 2.2 * breathNorm;
     }
-    if (groupRef.current) {
-      const s = 1 + 0.035 * Math.sin((2 * Math.PI * t) / 4);
-      groupRef.current.scale.setScalar(s);
+    // Second inner sphere: a hard white point at the very center, breathing
+    // 0.6 -> 1.2 on the same 4s cycle. Gives the glass shell something with
+    // real contrast to refract.
+    if (whiteRef.current) {
+      const s = 0.9 + 0.3 * Math.sin((2 * Math.PI * t) / 4);
+      whiteRef.current.scale.setScalar(s);
     }
   });
 
   return (
-    <group ref={groupRef}>
+    <group>
       {/* soft diffuse halo, not a surface */}
       <mesh>
         <sphereGeometry args={[0.3, 32, 32]} />
@@ -73,6 +85,7 @@ export function CoreCenter({ stateRef, thinkStartRef, colors }: SharedProps) {
           opacity={0.1}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
+          fog={false}
         />
       </mesh>
       {/* small concentrated source */}
@@ -82,12 +95,17 @@ export function CoreCenter({ stateRef, thinkStartRef, colors }: SharedProps) {
           ref={matRef}
           color="#0a0a0f"
           emissive={colors.idle}
-          emissiveIntensity={0.75}
+          emissiveIntensity={1.2}
           roughness={0.9}
           metalness={0}
           transparent
           opacity={0.85}
         />
+      </mesh>
+      {/* hard white point, pure emissive */}
+      <mesh ref={whiteRef}>
+        <sphereGeometry args={[0.08, 16, 16]} />
+        <meshBasicMaterial color="#ffffff" fog={false} />
       </mesh>
       <pointLight ref={lightRef} color={colors.idle} intensity={2.2} distance={9} decay={2} />
     </group>

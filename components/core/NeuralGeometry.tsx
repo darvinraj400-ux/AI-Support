@@ -69,6 +69,11 @@ export function NeuralGeometry({ stateRef, thinkStartRef }: SharedProps) {
             scene.environment is set and material.envMap is null — see
             IntelligenceCore's EnvironmentSetup. emissive keeps the violet
             signal alive now that the base color is a dark graphite. */}
+        {/* scene.environment is the night HDRI (0.35). This wireframe has no
+            material.envMap bound, so three r186 feeds it the scene-level
+            intensity — intentional here: the neural lattice should stay a
+            faint structure, not compete with the metal rings for reflection.
+            emissive keeps the violet signal alive against the dark graphite. */}
         <meshStandardMaterial
           ref={edgeRef}
           color="#2a2a3a"
@@ -76,7 +81,6 @@ export function NeuralGeometry({ stateRef, thinkStartRef }: SharedProps) {
           roughness={0.4}
           emissive="#8b5cf6"
           emissiveIntensity={0.3}
-          envMapIntensity={1.0}
           wireframe
           transparent
           opacity={0.05}

@@ -136,6 +136,17 @@ export default function MarketingPage() {
         {/* 2. Hero */}
         <section id="hero" className="relative py-20 text-center md:py-28">
           <div aria-hidden className="absolute inset-0 z-0">
+            {/* Floor glow: grounds the Core and gives the transparent canvas
+                something to sit on. Painted before CoreCanvas so it shows
+                through the canvas's transparent pixels. */}
+            <div
+              aria-hidden
+              className="absolute inset-0"
+              style={{
+                background:
+                  'radial-gradient(circle at center, rgba(139,92,246,0.08), transparent 60%)',
+              }}
+            />
             <CoreCanvas />
           </div>
           <div className="relative z-10">
