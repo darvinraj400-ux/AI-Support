@@ -5,24 +5,30 @@ import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { thinkBump, type SharedProps } from './IntelligenceCore';
 
-// Irregular orbital system: deliberately NOT concentric. Distinct tilts,
-// elliptical squash, radii, and periods; one ring off-center. Plus exactly
-// ONE expanding signal ring for the emit beat (kept invisible otherwise).
+// Irregular orbital system: deliberately NOT concentric. Three distinct
+// planes, a different in-plane stretch per ring, and small center offsets so
+// no ring passes through the core's center. Plus exactly ONE expanding signal
+// ring for the emit beat (kept invisible otherwise).
 type RingDef = {
   radius: number;
   tube: number;
   tiltX: number;
   tiltZ: number;
+  /** In-plane X stretch. 1.0 = circular. */
+  stretchX: number;
+  /** In-plane Y squash. 1.0 = circular. */
   squashY: number;
   period: number;
   offset: [number, number, number];
 };
 
+// Tilts 18° / 42° / 68° (0.314 / 0.733 / 1.187 rad) — spaced far enough apart
+// to read as three separate planes. Periods are the original 12/20/28s ÷ 1.4.
+// tube 0.0035u ≈ 0.8 CSS px at the 1440 reference scale.
 const RINGS: RingDef[] = [
-  { radius: 1.05, tube: 0.006, tiltX: 0.26, tiltZ: 0.1, squashY: 0.92, period: 12, offset: [0, 0, 0] },
-  { radius: 1.35, tube: 0.005, tiltX: 0.61, tiltZ: -0.22, squashY: 0.84, period: 20, offset: [0.25, 0.1, 0] },
-  { radius: 1.62, tube: 0.004, tiltX: 1.05, tiltZ: 0.35, squashY: 0.9, period: 28, offset: [0, 0, 0] },
-  { radius: 1.9, tube: 0.0035, tiltX: 0.45, tiltZ: 0.8, squashY: 0.78, period: 40, offset: [-0.12, 0.06, 0] },
+  { radius: 1.05, tube: 0.0035, tiltX: 0.314, tiltZ: 0.1, stretchX: 1.0, squashY: 1.0, period: 8.57, offset: [0.08, -0.06, 0] },
+  { radius: 1.35, tube: 0.0035, tiltX: 0.733, tiltZ: -0.22, stretchX: 1.15, squashY: 1.0, period: 14.29, offset: [-0.05, 0.08, 0.04] },
+  { radius: 1.62, tube: 0.0035, tiltX: 1.187, tiltZ: 0.35, stretchX: 1.0, squashY: 0.92, period: 20, offset: [0.07, 0.05, -0.06] },
 ];
 
 function alignBeat(ts: number): number {
@@ -40,7 +46,6 @@ export function OrbitalRings({ stateRef, thinkStartRef }: SharedProps) {
 
   const baseColors = useMemo(
     () => ({
-      graphite: new THREE.Color('#23232e'),
       edge: new THREE.Color('#8b5cf6'),
       signal: new THREE.Color('#22d3ee'),
     }),
@@ -57,14 +62,14 @@ export function OrbitalRings({ stateRef, thinkStartRef }: SharedProps) {
       const g = groupRefs.current[i];
       if (!g) return;
       g.rotation.z += delta * ((2 * Math.PI) / r.period);
-      // Tighten ~6% during contraction, relax after.
-      const s = 1 - 0.06 * bump;
-      g.scale.set(s, s * r.squashY, s);
+      // Tighten ~10% during contraction, relax after.
+      const s = 1 - 0.1 * bump;
+      g.scale.set(s * r.stretchX, s * r.squashY, s);
       // Brief unnatural plane alignment at the pulse beat.
       g.rotation.x = r.tiltX * (1 - 0.35 * align);
       g.rotation.y = r.tiltZ * (1 - 0.35 * align);
       const em = edgeMats.current[i];
-      if (em) em.opacity = 0.18 + 0.25 * bump;
+      if (em) em.opacity = 0.26 + 0.25 * bump;
     });
 
     // THE single expanding signal ring (emit ~1.8s). Invisible otherwise.
@@ -74,7 +79,7 @@ export function OrbitalRings({ stateRef, thinkStartRef }: SharedProps) {
       if (thinking && ts > 1.7 && ts < 2.6) {
         const k = (ts - 1.7) / 0.9;
         mesh.visible = true;
-        mesh.scale.setScalar(0.4 + 2.4 * k);
+        mesh.scale.setScalar(0.4 + 1.8 * k);
         mat.opacity = 0.85 * (1 - k);
       } else if (mesh.visible) {
         mesh.visible = false;
@@ -95,7 +100,28 @@ export function OrbitalRings({ stateRef, thinkStartRef }: SharedProps) {
         >
           <mesh>
             <torusGeometry args={[r.radius, r.tube, 8, 160]} />
-            <meshBasicMaterial color={baseColors.graphite} transparent opacity={0.85} />
+            {/* Polished graphite. metalness is 0.7 rather than the specified
+                0.85: at 0.85 the rings are almost purely specular, and with
+                only the CoreCenter pointLight plus a 0.15-intensity room env
+                there is nothing to reflect — they rendered effectively black
+                and the Core lost its outer structure entirely. 0.7 leaves a
+                diffuse term so the pointLight actually shapes the rings, which
+                is the point of section 5.5 ("give the rings physical
+                presence").
+                envMapIntensity is set to 1.0 as specified, but note three
+                r186 overrides it at draw time: when scene.environment is set
+                and material.envMap is null, the scene-level
+                environmentIntensity (0.15) is what actually reaches the
+                shader. The real reflection knob lives in IntelligenceCore's
+                EnvironmentSetup. */}
+            <meshStandardMaterial
+              color="#1a1a24"
+              metalness={0.7}
+              roughness={0.35}
+              envMapIntensity={1.0}
+              transparent
+              opacity={0.85}
+            />
           </mesh>
           <mesh>
             <torusGeometry args={[r.radius, r.tube * 0.45, 8, 160]} />
@@ -105,7 +131,7 @@ export function OrbitalRings({ stateRef, thinkStartRef }: SharedProps) {
               }}
               color={baseColors.edge}
               transparent
-              opacity={0.18}
+              opacity={0.26}
               blending={THREE.AdditiveBlending}
               depthWrite={false}
             />

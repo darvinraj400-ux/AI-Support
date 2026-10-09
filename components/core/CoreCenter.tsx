@@ -6,7 +6,7 @@ import { useFrame } from '@react-three/fiber';
 import { smoothstep, type SharedProps } from './IntelligenceCore';
 
 // Diffuse luminous center: the primary (and only strong) light source.
-// Idle: violet breathing 0.6 → 0.9 over ~6s. Thinking: damps toward blue,
+// Idle: violet breathing 0.55 → 1.0 over ~4s. Thinking: damps toward blue,
 // brief cyan resolution beat, then eases back — no snaps anywhere.
 export function CoreCenter({ stateRef, thinkStartRef, colors }: SharedProps) {
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
@@ -22,8 +22,10 @@ export function CoreCenter({ stateRef, thinkStartRef, colors }: SharedProps) {
     const thinking = stateRef.current === 'thinking';
     const ts = (performance.now() - thinkStartRef.current) / 1000;
 
-    // Idle breathing.
-    const breath = 0.75 + 0.15 * Math.sin((2 * Math.PI * t) / 6);
+    // Idle breathing: 0.55 → 1.0 over a 4s cycle. Written as a centered
+    // sine (0.775 ± 0.225) so the trough never approaches blackout the way a
+    // literal `0.55 + 0.45 * sin` would.
+    const breath = 0.775 + 0.225 * Math.sin((2 * Math.PI * t) / 4);
 
     if (!thinking) {
       target.copy(colors.idle);
@@ -41,7 +43,7 @@ export function CoreCenter({ stateRef, thinkStartRef, colors }: SharedProps) {
       mat.emissive.copy(tmp.copy(mat.emissive).lerp(target, 0.08));
       const dim = thinking ? 1 - 0.25 * smoothstep(0, 1.2, ts) : 1;
       const beat = thinking
-        ? 1 + 0.6 * Math.exp(-Math.pow((ts - 1.5) / 0.18, 2))
+        ? 1 + 0.8 * Math.exp(-Math.pow((ts - 1.5) / 0.18, 2))
         : 1;
       mat.emissiveIntensity = breath * dim * beat;
     }
@@ -54,7 +56,7 @@ export function CoreCenter({ stateRef, thinkStartRef, colors }: SharedProps) {
       lightRef.current.intensity = 2.2 * breath;
     }
     if (groupRef.current) {
-      const s = 1 + 0.035 * Math.sin((2 * Math.PI * t) / 6);
+      const s = 1 + 0.035 * Math.sin((2 * Math.PI * t) / 4);
       groupRef.current.scale.setScalar(s);
     }
   });

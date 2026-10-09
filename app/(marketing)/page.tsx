@@ -90,7 +90,7 @@ function DashboardMockup() {
   return (
     <div
       aria-hidden
-      className="mx-auto mt-14 w-full max-w-3xl rounded-lg border border-border bg-surface p-5 text-left opacity-40"
+      className="mx-auto mt-14 w-full max-w-3xl scale-[0.85] rounded-lg border border-border bg-surface p-5 text-left opacity-15"
     >
       <div className="flex items-center gap-1.5">
         <span className="h-2.5 w-2.5 rounded-full bg-border-strong" />

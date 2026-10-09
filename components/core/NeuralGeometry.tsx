@@ -12,7 +12,7 @@ const COUNT = 42; // icosahedron detail 1 vertices
 
 export function NeuralGeometry({ stateRef, thinkStartRef }: SharedProps) {
   const groupRef = useRef<THREE.Group>(null);
-  const edgeRef = useRef<THREE.MeshBasicMaterial>(null);
+  const edgeRef = useRef<THREE.MeshStandardMaterial>(null);
   const nodeRef = useRef<THREE.InstancedMesh>(null);
   const nodeMatRef = useRef<THREE.MeshBasicMaterial>(null);
 
@@ -64,9 +64,19 @@ export function NeuralGeometry({ stateRef, thinkStartRef }: SharedProps) {
     <group ref={groupRef}>
       <mesh>
         <icosahedronGeometry args={[0.6, 1]} />
-        <meshBasicMaterial
+        {/* envMapIntensity 1.0 as specified, but three r186 overrides it with
+            the scene-level environmentIntensity (0.15) whenever
+            scene.environment is set and material.envMap is null — see
+            IntelligenceCore's EnvironmentSetup. emissive keeps the violet
+            signal alive now that the base color is a dark graphite. */}
+        <meshStandardMaterial
           ref={edgeRef}
-          color="#8b5cf6"
+          color="#2a2a3a"
+          metalness={0.7}
+          roughness={0.4}
+          emissive="#8b5cf6"
+          emissiveIntensity={0.3}
+          envMapIntensity={1.0}
           wireframe
           transparent
           opacity={0.05}

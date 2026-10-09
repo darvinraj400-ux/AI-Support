@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Canvas, useThree } from '@react-three/fiber';
 import { PerformanceMonitor, useDetectGPU } from '@react-three/drei';
 import { CoreCenter } from './CoreCenter';
+import { CorePostProcessing } from './CorePostProcessing';
 import { NeuralGeometry } from './NeuralGeometry';
 import { OrbitalRings } from './OrbitalRings';
 import { ParticleField, particleCountFor } from './ParticleField';
@@ -84,6 +86,7 @@ export function IntelligenceCore({
 
   return (
     <ResponsiveScale>
+      <EnvironmentSetup />
       <ambientLight intensity={0.25} />
       <CoreCenter {...shared} />
       <NeuralGeometry {...shared} />
@@ -93,11 +96,42 @@ export function IntelligenceCore({
   );
 }
 
-// Keeps the composition balanced: smaller on narrow viewports so the Core
-// never covers hero copy. 1440px → ~0.62, 375px → 0.5 floor.
+// One-time image-based lighting: RoomEnvironment -> PMREM. Intensity is
+// deliberately low (0.15) so this only gives the graphite rings and the neural
+// edges physical presence; it must NOT light the scene or wash out the dark
+// obsidian premise. scene.environment is reflection-only here — the Layer A
+// background color stays untouched.
+//
+// Strict-mode double-mount is safe: cleanup disposes both the target and the
+// generator, so no PMREM leaks across the mount/unmount/mount cycle.
+function EnvironmentSetup() {
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+
+  useEffect(() => {
+    const pmrem = new THREE.PMREMGenerator(gl);
+    const target = pmrem.fromScene(new RoomEnvironment(), 0.04);
+    scene.environment = target.texture;
+    scene.environmentIntensity = 0.15;
+    return () => {
+      scene.environment = null;
+      target.dispose();
+      pmrem.dispose();
+    };
+  }, [gl, scene]);
+
+  return null;
+}
+
+// Keeps the composition balanced: the ring system (outer radius ~1.70u,
+// diameter ~3.40u) is the part that actually reads as "the Core" — the outer
+// particle shell is sparse and faint, so scaling off it would undersize the
+// thing we are trying to dominate the hero. Against the camera's 4.31u of
+// visible height at z=0, these constants put the rings at ~42% / ~50% / ~64%
+// of the hero box on mobile / tablet / desktop.
 function ResponsiveScale({ children }: { children: React.ReactNode }) {
   const size = useThree((s) => s.size);
-  const scale = Math.min(0.75, Math.max(0.5, size.width / 2300));
+  const scale = size.width < 768 ? 0.52 : size.width < 1024 ? 0.63 : 0.82;
   return <group scale={scale}>{children}</group>;
 }
 
@@ -120,6 +154,9 @@ function resolveTier(
 export default function IntelligenceCoreScene({ paused }: { paused: boolean }) {
   const [isMobile, setIsMobile] = useState(false);
   const [degraded, setDegraded] = useState(false);
+  // Sticky one-way bloom kill-switch. Never re-enabled: bloom off -> fps
+  // recovers -> a re-enable would oscillate straight back into the slow path.
+  const [bloomOn, setBloomOn] = useState(true);
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
 
   // detect-gpu degrades gracefully (tier 0) when WebGL is unavailable.
@@ -151,8 +188,11 @@ export default function IntelligenceCoreScene({ paused }: { paused: boolean }) {
     el.dataset.coreTier = tier;
     el.dataset.coreParticles = String(particleCountFor(tier, degraded));
     el.dataset.coreDegraded = String(degraded);
+    // Report what is actually mounted, not the raw `bloomOn` flag — the
+    // composer is additionally gated off at the low tier.
+    el.dataset.coreBloom = String(bloomOn && tier !== 'low');
   };
-  useEffect(writeTelemetry, [tier, degraded]);
+  useEffect(writeTelemetry, [tier, degraded, bloomOn]);
 
   // Very-low-tier GPU: same inline gradient language as StaticCore,
   // zero runtime 3D work.
@@ -182,11 +222,26 @@ export default function IntelligenceCoreScene({ paused }: { paused: boolean }) {
           el.dataset.coreTier = tier;
           el.dataset.coreParticles = String(particleCountFor(tier, degraded));
           el.dataset.coreDegraded = String(degraded);
+          el.dataset.coreBloom = String(bloomOn && tier !== 'low');
         }
       }}
     >
       <PerformanceMonitor onDecline={() => setDegraded(true)} flipflops={2} />
+      {/* Bloom's own guard: sustained sub-50fps unmounts the composer and
+          leaves the rest of the scene running. Default drei bounds are
+          [40,60], so the threshold has to be set explicitly. */}
+      <PerformanceMonitor
+        bounds={() => [50, 60]}
+        onDecline={() => setBloomOn(false)}
+      />
       <IntelligenceCore tier={tier} degraded={degraded} />
+      {/* Bloom is armed only above the low tier. resolveTier forces every
+          mobile device to 'low', and drei's PerformanceMonitor needs ~2.5s of
+          sustained sub-50fps before it reacts — so arming the composer
+          unconditionally made the weakest GPUs pay the heaviest cost during
+          exactly the hero-load window the tier system exists to protect, then
+          take a permanent downgrade. Same gate the connection bands use. */}
+      <CorePostProcessing enabled={bloomOn && tier !== 'low'} />
     </Canvas>
   );
 }
@@ -202,7 +257,10 @@ export function smoothstep(edge0: number, edge1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** 0 → 1 → 0 envelope over a thinking cycle (seconds since think start). */
+/** 0 → 1 → 0 envelope over a thinking cycle (seconds since think start).
+ *  Balanced as a calm 1.2s head, a dramatic 1.8s middle, and a calm 1.0s tail
+ *  — the fade-out starts at 3.0s so the whole envelope is gone by the 4.0s
+ *  state flip and nothing snaps. */
 export function thinkBump(t: number): number {
-  return smoothstep(0, 1.2, t) * (1 - smoothstep(3.4, 4.0, t));
+  return smoothstep(0, 1.2, t) * (1 - smoothstep(3.0, 4.0, t));
 }

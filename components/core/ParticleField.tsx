@@ -32,6 +32,8 @@ type FieldData = {
   count: number;
   base: Float32Array;
   phase: Float32Array;
+  /** Per-particle drift speed multiplier, in [0.6, 1.4]. */
+  speed: Float32Array;
   clusterW: Float32Array;
   clusterPos: Float32Array;
   bands: { pairs: Uint32Array; positions: Float32Array; count: number }[];
@@ -42,6 +44,7 @@ function buildField(count: number, maxSegs: number): FieldData {
   const rand = mulberry32(1337);
   const base = new Float32Array(count * 3);
   const phase = new Float32Array(count);
+  const speed = new Float32Array(count);
   const clusterW = new Float32Array(count);
   const clusterPos = new Float32Array(count * 3);
 
@@ -55,6 +58,9 @@ function buildField(count: number, maxSegs: number): FieldData {
     base[i * 3 + 1] = y * r;
     base[i * 3 + 2] = Math.sin(theta) * rxz * r;
     phase[i] = i * 2.39996;
+    // Spread drift speeds so the field reads as a current, not a uniform
+    // cloud: some particles visibly outrun their neighbours.
+    speed[i] = 0.6 + rand() * 0.8;
 
     // ~18% belong to an off-axis cluster that forms and dissolves.
     if (rand() < 0.18) {
@@ -98,7 +104,7 @@ function buildField(count: number, maxSegs: number): FieldData {
     count: p.length / 2,
   }));
 
-  return { count, base, phase, clusterW, clusterPos, bands, maxSegs };
+  return { count, base, phase, speed, clusterW, clusterPos, bands, maxSegs };
 }
 
 export function ParticleField({
@@ -119,6 +125,7 @@ export function ParticleField({
   const geoRef = useRef<THREE.BufferGeometry>(null);
   const lineRefs = useRef<(THREE.LineSegments | null)[]>([]);
   const lineMatRefs = useRef<(THREE.LineBasicMaterial | null)[]>([]);
+  const spinRef = useRef<THREE.Group>(null);
   const driftTime = useRef(0);
 
   // Live positions buffer, written every frame from base data.
@@ -136,16 +143,35 @@ export function ParticleField({
     const dtm = driftTime.current;
 
     const radiusF = 1 - 0.32 * bump;
-    const { base, phase, clusterW, clusterPos, count } = data;
+    const { base, phase, speed, clusterW, clusterPos, count } = data;
+
+    // The whole outer shell turns as one slow system, so the field reads as
+    // orbiting matter rather than a static cloud of jiggling dots.
+    if (spinRef.current) spinRef.current.rotation.y += dt * 0.04;
 
     for (let i = 0; i < count; i++) {
       const p = phase[i];
-      const sx = base[i * 3] * radiusF + 0.06 * Math.sin(dtm * 0.25 + p);
-      const sy =
-        base[i * 3 + 1] * radiusF + 0.05 * Math.sin(dtm * 0.19 + p * 1.3);
-      const sz = base[i * 3 + 2] * radiusF + 0.06 * Math.cos(dtm * 0.22 + p);
+      const spd = speed[i];
+      // Primary drift: frequencies ×1.6 from the original 0.25/0.19/0.22.
+      // Amplitudes are unchanged on purpose — raising them would enlarge each
+      // particle's excursion and destroy the clustering that depends on
+      // particles staying near their base positions.
+      const ax = 0.06 * Math.sin(dtm * 0.4 * spd + p);
+      const ay = 0.05 * Math.sin(dtm * 0.304 * spd + p * 1.3);
+      const az = 0.06 * Math.cos(dtm * 0.352 * spd + p);
+      // Secondary cross-axis drift, in quadrature with the primary. This is
+      // the "current": each particle traces a shallow helix instead of
+      // oscillating back and forth along a single line.
+      const bx = 0.03 * Math.cos(dtm * 0.304 * spd + p * 1.3);
+      const by = 0.03 * Math.cos(dtm * 0.352 * spd + p);
+      const bz = 0.03 * Math.sin(dtm * 0.4 * spd + p);
+      const sx = base[i * 3] * radiusF + ax + bx;
+      const sy = base[i * 3 + 1] * radiusF + ay + by;
+      const sz = base[i * 3 + 2] * radiusF + az + bz;
       if (clusterW[i] > 0) {
-        const w = clusterW[i] * (0.5 + 0.5 * Math.sin(dtm * 0.07 + p * 2.1));
+        // Cluster cycle ~18s (was ~90s at 0.07). Drives from raw dtm, so the
+        // ×1.6 drift speed-up does not also accelerate cluster formation.
+        const w = clusterW[i] * (0.5 + 0.5 * Math.sin(dtm * 0.35 + p * 2.1));
         positions[i * 3] = sx + (clusterPos[i * 3] - sx) * w;
         positions[i * 3 + 1] = sy + (clusterPos[i * 3 + 1] - sy) * w;
         positions[i * 3 + 2] = sz + (clusterPos[i * 3 + 2] - sz) * w;
@@ -170,7 +196,7 @@ export function ParticleField({
       const start = BAND_START + b * BAND_WINDOW;
       const op = thinking
         ? smoothstep(start, start + 0.2, ts) *
-          (1 - smoothstep(3.0, 3.4, ts)) *
+          (1 - smoothstep(3.5, 3.9, ts)) *
           0.55
         : 0;
       if (!allowConn || op <= 0.01) {
@@ -199,7 +225,7 @@ export function ParticleField({
   });
 
   return (
-    <group>
+    <group ref={spinRef}>
       <points frustumCulled={false}>
         <bufferGeometry ref={geoRef}>
           <bufferAttribute attach="attributes-position" args={[positions, 3]} />
