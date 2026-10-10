@@ -33,7 +33,7 @@ export function StaticCoreFallback({ className }: { className?: string }) {
 
   // Pre-mount: render the still PNG (identical on server and client).
   // Post-mount with reduced motion: PNG. Otherwise: animated WebP.
-  const reducedMotion = !mounted || reduceMotion;
+  const reducedMotion = false; // DEBUG
 
   return (
     <div aria-hidden className={className} style={{ overflow: 'hidden' }}>
