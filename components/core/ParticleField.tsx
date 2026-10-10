@@ -4,16 +4,42 @@ import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { Trail } from '@react-three/drei';
-import { smoothstep, thinkBump, type SharedProps } from './IntelligenceCore';
+import {
+  smoothstep,
+  thinkBump,
+  type CoreTier,
+  type SharedProps,
+} from './IntelligenceCore';
 
-const TIER_COUNT: Record<string, number> = { high: 400, medium: 250, low: 120 };
+const TIER_COUNT: Record<CoreTier, number> = {
+  ultra: 400,
+  high: 300,
+  medium: 200,
+  low: 120,
+};
+/** How many particles carry a drei Trail per tier. Low never trails. */
+const TRAIL_N: Record<CoreTier, number> = {
+  ultra: 20,
+  high: 15,
+  medium: 10,
+  low: 0,
+};
+/** Desktop-only medium boost (weak iGPU still gets a richer field). */
+const MEDIUM_DESKTOP_COUNT = 250;
+const MEDIUM_DESKTOP_TRAILS = 12;
 
 export function particleCountFor(
-  tier: string,
-  degraded: boolean
+  tier: CoreTier,
+  degraded: boolean,
+  isDesktop = false
 ): number {
-  const base = TIER_COUNT[tier] ?? 250;
+  const base =
+    tier === 'medium' && isDesktop ? MEDIUM_DESKTOP_COUNT : TIER_COUNT[tier];
   return degraded ? Math.floor(base * 0.6) : base;
+}
+
+function trailCountFor(tier: CoreTier, isDesktop = false): number {
+  return tier === 'medium' && isDesktop ? MEDIUM_DESKTOP_TRAILS : TRAIL_N[tier];
 }
 const BAND_WINDOW = 0.3;
 const BAND_START = 2.2;
@@ -43,10 +69,7 @@ type FieldData = {
   maxSegs: number;
 };
 
-/** How many particles carry a drei Trail (high tier only). */
-const TRAIL_N = 20;
-
-function buildField(count: number, maxSegs: number): FieldData {
+function buildField(count: number, maxSegs: number, trailN: number): FieldData {
   const rand = mulberry32(1337);
   const base = new Float32Array(count * 3);
   const phase = new Float32Array(count);
@@ -110,11 +133,13 @@ function buildField(count: number, maxSegs: number): FieldData {
     count: p.length / 2,
   }));
 
-  // The TRAIL_N fastest particles by drift speed carry motion trails during
+  // The trailN fastest particles by drift speed carry motion trails during
   // the thinking cycle. Sorted once at build time; positions are resolved live
   // from the shared buffer so trails track the exact particle they belong to.
-  const trailIdx = Array.from({ length: Math.min(TRAIL_N, count) }, (_, k) => k)
-    .sort((a, b) => speed[b] - speed[a]);
+  const trailIdx = Array.from(
+    { length: Math.min(trailN, count) },
+    (_, k) => k
+  ).sort((a, b) => speed[b] - speed[a]);
 
   return { count, base, phase, speed, clusterW, clusterPos, trailIdx, bands, maxSegs };
 }
@@ -126,11 +151,18 @@ export function ParticleField({
   colors,
   tier,
   degraded,
+  isDesktop,
 }: SharedProps) {
   // Degraded mode sheds ~40% of particles (one rebuild, then steady).
-  const effCount = particleCountFor(tier, degraded);
+  const effCount = particleCountFor(tier, degraded, isDesktop);
+  const trailN = trailCountFor(tier, isDesktop);
   const data = useMemo(
-    () => buildField(effCount, tier === 'high' && !degraded ? 260 : 140),
+    () =>
+      buildField(
+        effCount,
+        (tier === 'ultra' || tier === 'high') && !degraded ? 260 : 140,
+        trailN
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [effCount]
   );
@@ -337,12 +369,12 @@ export function ParticleField({
           />
         </lineSegments>
       ))}
-      {/* Motion trails on the 20 fastest particles (high tier only). Each
-          anchor is repositioned in useFrame to sit exactly on its particle;
-          drei's Trail turns that movement into a tapered streak. Gated off
-          the low/medium tiers and when degraded: Trail costs ~20 extra
-          meshline updates plus draw calls per frame. */}
-      {tier === 'high' && !degraded && (
+      {/* Motion trails on the trailN fastest particles (ultra/high/medium,
+          never low). Each anchor is repositioned in useFrame to sit exactly
+          on its particle; drei's Trail turns that movement into a tapered
+          streak. Gated off low and when degraded: Trail costs extra meshline
+          updates plus draw calls per frame. */}
+      {!degraded && trailN > 0 && (
         <group ref={trailsRef} visible={false}>
           {data.trailIdx.map((_, k) => (
             <Trail

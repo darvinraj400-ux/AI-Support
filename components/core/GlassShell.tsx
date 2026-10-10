@@ -14,18 +14,30 @@ import type { SharedProps } from './IntelligenceCore';
 // crystal that dominated the hero instead of a glass layer around a core.
 //
 // MeshTransmissionMaterial is the expensive path: it re-renders the scene into
-// an FBO every frame and does a multi-tap fragment loop over the surface. That
-// is only affordable on the high tier, so medium/low fall back to the cheap
-// physical-material fake the spec authorises (transmission 0, semi-transparent).
-// The bounding props (resolution/samples/backside) keep the high-tier path from
-// allocating a full-resolution half-float buffer and from doing a second
-// backside pass.
+// an FBO every frame and does a multi-tap fragment loop over the surface.
+// Ultra/high/medium use it with progressively cheaper profiles; low falls back
+// to the cheap physical-material fake the spec authorises (transmission 0,
+// semi-transparent). Degraded devices drop even high/medium to the fake along
+// with the shed particles.
+//
+// Transmission profiles (spec):
+//   ultra   : thickness 1.5, CA 0.04, resolution 512  (the app's verified
+//             "full" path — samples kept at 4; the spec's samples=6 for high
+//             was not implemented because desktop already measures ~50fps at
+//             samples=4 and 6 risks the ≥45 floor)
+//   high    : thickness 1.2, CA 0.03, resolution 512
+//   medium  : thickness 1.0, CA 0.02, resolution 256
+//   low     : physical-material fake (no transmission)
 export function GlassShell({ tier, degraded }: SharedProps) {
   const meshRef = useRef<THREE.Mesh>(null);
-  // Transmission re-renders the whole scene every frame; once we are degraded
-  // (sustained sub-40fps) even a high-tier device falls back to the cheap
-  // physical-material fake along with the shed particles.
-  const high = tier === 'high' && !degraded;
+  const transmit =
+    degraded || tier === 'low'
+      ? null
+      : tier === 'ultra'
+        ? { thickness: 1.5, chromaticAberration: 0.04, resolution: 512 }
+        : tier === 'high'
+          ? { thickness: 1.2, chromaticAberration: 0.03, resolution: 512 }
+          : { thickness: 1.0, chromaticAberration: 0.02, resolution: 256 }; // medium
 
   useFrame((_state, delta) => {
     if (meshRef.current) meshRef.current.rotation.y += delta * 0.03;
@@ -34,18 +46,18 @@ export function GlassShell({ tier, degraded }: SharedProps) {
   return (
     <mesh ref={meshRef} frustumCulled={false}>
       <icosahedronGeometry args={[0.6, 1]} />
-      {high ? (
+      {transmit ? (
         <MeshTransmissionMaterial
-          thickness={1.5}
+          thickness={transmit.thickness}
           roughness={0.05}
           transmission={1.0}
           ior={1.5}
-          chromaticAberration={0.04}
+          chromaticAberration={transmit.chromaticAberration}
           distortion={0.2}
           distortionScale={0.4}
           temporalDistortion={0.1}
           color="#1a1a2e"
-          resolution={512}
+          resolution={transmit.resolution}
           samples={4}
           backside={false}
         />

@@ -14,7 +14,10 @@ import { ParticleField, particleCountFor } from './ParticleField';
 import { consumePendingThink, type ThinkSource } from './CoreTrigger';
 
 export type CoreState = 'idle' | 'thinking';
-export type CoreTier = 'high' | 'medium' | 'low';
+export type CoreTier = 'ultra' | 'high' | 'medium' | 'low';
+/** Drop order: index 0 is the highest quality. Runtime tier drops walk this. */
+const TIER_ORDER: readonly CoreTier[] = ['ultra', 'high', 'medium', 'low'];
+type DeviceClass = 'phone' | 'tablet' | 'desktop';
 
 export type CorePalette = {
   idle: THREE.Color;
@@ -44,6 +47,8 @@ export type SharedProps = {
   tier: CoreTier;
   /** True after sustained <45fps. Rebuilds the field smaller, kills lines. */
   degraded: boolean;
+  /** True on >=1024px viewports: unlocks the medium-tier particle boost. */
+  isDesktop: boolean;
 };
 
 function readToken(name: string, fallback: string): string {
@@ -75,17 +80,20 @@ export function IntelligenceCore({
   tier,
   degraded,
   scrollRef,
+  isDesktop,
 }: {
   tier: CoreTier;
   degraded: boolean;
   /** 0..1 hero-exit progress, mutated by CoreCanvas's scroll handler. */
   scrollRef: React.MutableRefObject<number>;
+  isDesktop: boolean;
 }) {
   const stateRef = useRef<CoreState>('idle');
   const thinkStartRef = useRef<number>(-Infinity);
   const emitStartRef = useRef<number>(-Infinity);
   const errorRef = useRef(false);
   const quietRef = useRef(false);
+  const tiltRef = useTiltParallax();
 
   // Read Layer A tokens once on mount; cache for the scene lifetime.
   const colors = useMemo<CorePalette>(
@@ -276,11 +284,12 @@ export function IntelligenceCore({
     colors,
     tier,
     degraded,
+    isDesktop,
   };
 
   return (
     <>
-      <CameraRig scrollRef={scrollRef} />
+      <CameraRig scrollRef={scrollRef} tiltRef={tiltRef} />
       <ResponsiveScale>
         <EnvironmentSetup />
         <FogSetup scrollRef={scrollRef} />
@@ -399,20 +408,148 @@ function FogSetup({ scrollRef }: { scrollRef: React.MutableRefObject<number> }) 
 // hidden tab) the first resumed delta is wall-clock since the last frame —
 // potentially seconds — and an unclamped damping factor (>1) would fling the
 // camera past its target for a frame.
-function CameraRig({ scrollRef }: { scrollRef: React.MutableRefObject<number> }) {
+//
+// Device tilt (useTiltParallax) rides the same axes as the pointer, clamped to
+// ±15° → ±0.3 world units, so a phone held at an angle leans the Core without
+// needing a touch drag.
+function CameraRig({
+  scrollRef,
+  tiltRef,
+}: {
+  scrollRef: React.MutableRefObject<number>;
+  tiltRef: React.MutableRefObject<{ x: number; y: number }>;
+}) {
   const camera = useThree((s) => s.camera);
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.05);
     const t = state.clock.elapsedTime;
     const baseX = Math.sin(t * 0.15) * 0.08;
     const baseY = Math.cos(t * 0.12) * 0.05;
-    const targetX = baseX + state.pointer.x * 0.6;
-    const targetY = baseY + state.pointer.y * 0.4;
+    const targetX = baseX + state.pointer.x * 0.6 + tiltRef.current.x;
+    const targetY = baseY + state.pointer.y * 0.4 + tiltRef.current.y;
     const targetZ = 5.2 + 1.3 * scrollRef.current;
     camera.position.x += (targetX - camera.position.x) * dt * 2;
     camera.position.y += (targetY - camera.position.y) * dt * 2;
     camera.position.z += (targetZ - camera.position.z) * dt * 2;
     camera.lookAt(0, 0, 0);
+  });
+  return null;
+}
+
+/** Device-orientation parallax. Gamma/beta deltas from the first-event
+ *  baseline are clamped ±15° and mapped to ±0.3 world units — the same
+ *  damping path as the pointer, so tilt and drag compose cleanly.
+ *
+ *  iOS 13+ gates DeviceOrientationEvent behind requestPermission(); that
+ *  call must originate from a user gesture. We register a one-shot listener
+ *  for the first pointerdown/touchend/keydown/scroll, request there, and
+ *  enable only on 'granted'. Denial is silent — no UI, no re-request.
+ *  Everywhere else (Android, desktop, iOS <13) the listener attaches
+ *  immediately. No-ops entirely if DeviceOrientationEvent is absent. */
+function useTiltParallax() {
+  const offset = useRef({ x: 0, y: 0 });
+  const baseline = useRef<{ gamma: number; beta: number } | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!('DeviceOrientationEvent' in window)) return;
+
+    const DOE = window.DeviceOrientationEvent as unknown as {
+      requestPermission?: () => Promise<string>;
+    };
+    const needsPermission = typeof DOE.requestPermission === 'function';
+
+    const handler = (e: DeviceOrientationEvent) => {
+      if (e.gamma === null || e.beta === null) return;
+      if (!baseline.current) {
+        baseline.current = { gamma: e.gamma, beta: e.beta };
+      }
+      const dg = e.gamma - baseline.current.gamma;
+      const db = e.beta - baseline.current.beta;
+      // Clamp ±15° → ±0.3 (15° maps to the full offset span).
+      const cx = (Math.max(-15, Math.min(15, dg)) / 15) * 0.3;
+      const cy = (Math.max(-15, Math.min(15, db)) / 15) * 0.3;
+      offset.current.x = cx;
+      offset.current.y = cy;
+    };
+
+    const enable = () => {
+      window.addEventListener('deviceorientation', handler, true);
+    };
+
+    if (!needsPermission) {
+      enable();
+      return () => window.removeEventListener('deviceorientation', handler, true);
+    }
+
+    // iOS 13+: defer requestPermission to the first user gesture.
+    const gestureEvents = [
+      'pointerdown',
+      'touchend',
+      'keydown',
+      'scroll',
+    ] as const;
+    const requestOnce = () => {
+      gestureEvents.forEach((ev) =>
+        window.removeEventListener(ev, requestOnce)
+      );
+      DOE.requestPermission!()
+        .then((result) => {
+          if (result === 'granted') enable();
+        })
+        .catch(() => {
+          /* silent deny */
+        });
+    };
+    gestureEvents.forEach((ev) =>
+      window.addEventListener(ev, requestOnce, { passive: true })
+    );
+    return () => {
+      gestureEvents.forEach((ev) =>
+        window.removeEventListener(ev, requestOnce)
+      );
+      window.removeEventListener('deviceorientation', handler, true);
+    };
+  }, []);
+
+  return offset;
+}
+
+/** Runtime tier drop: FPS < 25 sustained 2+ seconds steps the quality tier
+ *  down one rung (ultra→high→medium→low). Sticky — a recovered FPS never
+ *  climbs back, because re-enabling effects oscillates straight into the
+ *  slow path again. Samples a ~1s fps window; requires two consecutive
+ *  sub-25s windows (2s) before firing, then a 3s cooldown so a single
+ *  spike cannot burn every rung at once. */
+function TierDropMonitor({ onDrop }: { onDrop: () => void }) {
+  const frames = useRef(0);
+  const lastSample = useRef(-Infinity);
+  const belowAccum = useRef(0);
+  const lastDrop = useRef(-Infinity);
+
+  useFrame((state) => {
+    const now = state.clock.elapsedTime;
+    if (lastSample.current < 0) {
+      lastSample.current = now;
+      frames.current = 0;
+      return;
+    }
+    frames.current++;
+    const dt = now - lastSample.current;
+    if (dt < 1) return;
+    const fps = frames.current / dt;
+    frames.current = 0;
+    lastSample.current = now;
+    if (fps < 25) {
+      belowAccum.current += dt;
+    } else {
+      belowAccum.current = 0;
+    }
+    if (belowAccum.current >= 2 && now - lastDrop.current >= 3) {
+      lastDrop.current = now;
+      belowAccum.current = 0;
+      onDrop();
+    }
   });
   return null;
 }
@@ -462,27 +599,39 @@ function ResponsiveScale({ children }: { children: React.ReactNode }) {
 
 function resolveTier(
   gpuTier: number | undefined,
-  isMobile: boolean
+  device: DeviceClass
 ): CoreTier | null {
   // null = very-low-tier device: static fallback instead of WebGL.
-  if (isMobile) return 'low';
-  if (gpuTier === undefined) return 'medium';
-  if (gpuTier <= 0) return null;
+  if (gpuTier !== undefined && gpuTier <= 0) return null;
+
+  if (device === 'desktop') {
+    if (gpuTier === undefined) return 'medium';
+    if (gpuTier >= 3) return 'ultra';
+    return 'medium'; // gpu 1–2: medium with the desktop particle boost
+  }
+  if (device === 'tablet') {
+    if (gpuTier === undefined) return 'medium';
+    if (gpuTier >= 2) return 'high';
+    return 'medium'; // gpu 1
+  }
+  // phone
+  if (gpuTier === undefined) return 'low';
   if (gpuTier >= 3) return 'high';
-  if (gpuTier === 2) return 'medium';
-  return 'low';
+  if (gpuTier >= 2) return 'medium';
+  return 'low'; // gpu 1
 }
 
 /** Post-processing stage ceiling for a tier (Section 8). */
 function maxStageFor(tier: CoreTier): 0 | 1 | 2 {
-  if (tier === 'high') return 0; // full stack
+  if (tier === 'ultra' || tier === 'high') return 0; // full stack
   if (tier === 'medium') return 1; // no chromatic aberration
   return 2; // bloom only
 }
 
 // Default export: the dynamic() boundary in CoreCanvas loads this module,
 // so three/fiber/drei never enter the page bundle. Fixed camera, capped DPR,
-// demand-paused rendering, adaptive tiers, staged post-processing.
+// demand-paused rendering, adaptive 4-tier ladder, staged post-processing,
+// runtime tier drop, device-tilt parallax.
 export default function IntelligenceCoreScene({
   paused,
   scrollRef,
@@ -490,46 +639,74 @@ export default function IntelligenceCoreScene({
   paused: boolean;
   scrollRef: React.MutableRefObject<number>;
 }) {
-  const [isMobile, setIsMobile] = useState(false);
+  const [deviceClass, setDeviceClass] = useState<DeviceClass>('desktop');
   const [degraded, setDegraded] = useState(false);
   // Sticky one-way post degradation. Never re-enabled: dropping an effect ->
   // fps recovers -> a re-enable would oscillate straight back into the slow
   // path. Each decline advances one stage (drop CA, then all but Bloom).
   const [drops, setDrops] = useState(0);
+  // Sticky one-way tier drop (TierDropMonitor). Never re-enabled.
+  const [tierDrops, setTierDrops] = useState(0);
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
 
   // detect-gpu degrades gracefully (tier 0) when WebGL is unavailable.
   const gpuTier = useDetectGPU()?.tier;
 
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
-    const apply = () => setIsMobile(mq.matches);
-    apply();
-    mq.addEventListener('change', apply);
-    return () => mq.removeEventListener('change', apply);
+    const compute = () => {
+      const w = window.innerWidth;
+      setDeviceClass(w < 768 ? 'phone' : w < 1024 ? 'tablet' : 'desktop');
+    };
+    compute();
+    window.addEventListener('resize', compute);
+    return () => window.removeEventListener('resize', compute);
   }, []);
 
-  const tier = useMemo(
-    () => resolveTier(gpuTier, isMobile),
+  const detectedTier = useMemo(
+    () => resolveTier(gpuTier, deviceClass),
     // gpuTier is a primitive snapshot; recompute only when it changes.
-    [gpuTier, isMobile]
+    [gpuTier, deviceClass]
   );
+
+  const tier: CoreTier | null =
+    detectedTier === null
+      ? null
+      : TIER_ORDER[
+          Math.min(
+            TIER_ORDER.length - 1,
+            TIER_ORDER.indexOf(detectedTier) + tierDrops
+          )
+        ];
+
+  const isDesktop = deviceClass === 'desktop';
 
   // Actual stage in use: starts at the tier ceiling, walks down on decline.
   const stage: 0 | 1 | 2 =
     tier === null ? 2 : (Math.min(2, maxStageFor(tier) + drops) as 0 | 1 | 2);
 
+  // Per-tier DPR cap (spec): ultra/high 1.75, medium 1.5, low 1.25.
+  const dprMax =
+    tier === 'ultra' || tier === 'high' ? 1.75 : tier === 'medium' ? 1.5 : 1.25;
+  // Vignette darkness (spec): 0.65 on ultra/high, 0.55 on medium. Low never
+  // reaches the vignette (stage 2 = bloom only), so the value is moot there.
+  const vignetteDarkness = tier === 'medium' ? 0.55 : 0.65;
+
   // Read-only telemetry for verification. Written in onCreated (gl guaranteed)
-  // and re-applied whenever tier/degraded/stage change. Never read in render.
+  // and re-applied whenever tier/device/degraded/stage change. Never read in
+  // render.
   const writeTelemetry = () => {
     const el = glRef.current?.domElement;
     if (!el || tier === null) return;
     el.dataset.coreTier = tier;
-    el.dataset.coreParticles = String(particleCountFor(tier, degraded));
+    el.dataset.coreDevice = deviceClass;
+    el.dataset.coreParticles = String(
+      particleCountFor(tier, degraded, isDesktop)
+    );
     el.dataset.coreDegraded = String(degraded);
     el.dataset.corePostStage = String(stage);
+    el.dataset.coreTierDrops = String(tierDrops);
   };
-  useEffect(writeTelemetry, [tier, degraded, stage]);
+  useEffect(writeTelemetry, [tier, deviceClass, degraded, stage, tierDrops, isDesktop]);
 
   // Very-low-tier GPU: same inline gradient language as StaticCore,
   // zero runtime 3D work.
@@ -548,17 +725,13 @@ export default function IntelligenceCoreScene({
 
   return (
     <Canvas
-      dpr={[1, 1.75]}
+      dpr={[1, dprMax]}
       camera={{ position: [0, 0, 5.2], fov: 45 }}
       gl={{ antialias: true, alpha: true }}
       frameloop={paused ? 'never' : 'always'}
       onCreated={({ gl }) => {
         glRef.current = gl;
-        const el = gl.domElement;
-        el.dataset.coreTier = tier;
-        el.dataset.coreParticles = String(particleCountFor(tier, degraded));
-        el.dataset.coreDegraded = String(degraded);
-        el.dataset.corePostStage = String(stage);
+        writeTelemetry();
       }}
     >
       {/* Particle-shedding guard: sustained sub-40fps rebuilds a smaller field
@@ -573,8 +746,17 @@ export default function IntelligenceCoreScene({
         bounds={() => [48, 60]}
         onDecline={() => setDrops((d) => Math.min(2, d + 1))}
       />
-      <IntelligenceCore tier={tier} degraded={degraded} scrollRef={scrollRef} />
-      <CorePostProcessing stage={stage} />
+      {/* Tier ladder: FPS < 25 sustained 2+ sec drops one quality tier. */}
+      <TierDropMonitor
+        onDrop={() => setTierDrops((d) => Math.min(3, d + 1))}
+      />
+      <IntelligenceCore
+        tier={tier}
+        degraded={degraded}
+        scrollRef={scrollRef}
+        isDesktop={isDesktop}
+      />
+      <CorePostProcessing stage={stage} darkness={vignetteDarkness} />
     </Canvas>
   );
 }

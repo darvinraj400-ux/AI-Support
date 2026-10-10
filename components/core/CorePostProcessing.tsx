@@ -8,6 +8,10 @@ import { BlendFunction } from 'postprocessing';
 //   stage 1 = lighter  : Bloom -> Vignette -> Noise   (chromatic aberration dropped)
 //   stage 2 = cheapest : Bloom only
 //
+// Vignette darkness is tier-driven (spec): 0.65 on ultra/high, 0.55 on
+// medium. Low never reaches the vignette (stage 2 = bloom only), so the
+// value passed for low is unused.
+//
 // DepthOfField is deliberately absent. Two verified reasons:
 //   1. Its mask shader writes alpha from the circle-of-confusion, so fully
 //      transparent background pixels become opaque. On an alpha canvas that
@@ -25,7 +29,13 @@ import { BlendFunction } from 'postprocessing';
 // the composer forces gl.toneMapping = NoToneMapping and allocates the render
 // targets; both are only released on a real unmount. With a stage ladder the
 // composer stays mounted for the scene lifetime and we vary its children.
-export function CorePostProcessing({ stage }: { stage: 0 | 1 | 2 }) {
+export function CorePostProcessing({
+  stage,
+  darkness,
+}: {
+  stage: 0 | 1 | 2;
+  darkness: number;
+}) {
   return (
     <EffectComposer multisampling={0}>
       <Bloom
@@ -44,7 +54,7 @@ export function CorePostProcessing({ stage }: { stage: 0 | 1 | 2 }) {
       )}
       {stage < 2 && (
         <>
-          <Vignette eskil={false} offset={0.25} darkness={0.65} />
+          <Vignette eskil={false} offset={0.25} darkness={darkness} />
           <Noise opacity={0.025} blendFunction={BlendFunction.OVERLAY} />
         </>
       )}
