@@ -135,16 +135,34 @@ export default function MarketingPage() {
       <main className="mx-auto max-w-[1200px] px-6">
         {/* 2. Hero */}
         <section id="hero" className="relative py-20 text-center md:py-28">
-          <div aria-hidden className="absolute inset-0 z-0">
+          {/* overflow-hidden clips the glow's 1.06 pulse scale: a transformed
+              box contributes to scrollable overflow, and past ~848px the
+              hero's px-6 padding is thinner than the 3%-per-side expansion —
+              the scrollbar would toggle twice per 4s cycle. */}
+          <div aria-hidden className="absolute inset-0 z-0 overflow-hidden">
             {/* Floor glow: grounds the Core and gives the transparent canvas
                 something to sit on. Painted before CoreCanvas so it shows
-                through the canvas's transparent pixels. */}
+                through the canvas's transparent pixels.
+                Pulses on the Core's 4s breath cycle (Section 6e) — not read
+                from the scene (CSS cannot see the WebGL clock), just present
+                and on the same period. Static under reduced motion, matching
+                the static Core fallback. */}
+            <style>{`
+              @keyframes hero-glow-pulse {
+                0%, 100% { opacity: 1; transform: scale(1); }
+                50% { opacity: 0.55; transform: scale(1.06); }
+              }
+              @media (prefers-reduced-motion: reduce) {
+                .hero-glow { animation: none !important; }
+              }
+            `}</style>
             <div
               aria-hidden
-              className="absolute inset-0"
+              className="hero-glow absolute inset-0"
               style={{
                 background:
                   'radial-gradient(circle at center, rgba(139,92,246,0.08), transparent 60%)',
+                animation: 'hero-glow-pulse 4s ease-in-out infinite',
               }}
             />
             <CoreCanvas />

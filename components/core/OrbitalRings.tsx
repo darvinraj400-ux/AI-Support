@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { thinkBump, type SharedProps } from './IntelligenceCore';
@@ -48,14 +48,51 @@ function alignBeat(ts: number): number {
   return Math.exp(-d * d);
 }
 
-export function OrbitalRings({ stateRef, thinkStartRef }: SharedProps) {
+export function OrbitalRings({
+  stateRef,
+  thinkStartRef,
+  errorRef,
+  colors,
+}: SharedProps) {
   const scene = useThree((s) => s.scene);
+  const gl = useThree((s) => s.gl);
   const groupRefs = useRef<(THREE.Group | null)[]>([]);
   const signalRef = useRef<THREE.Mesh>(null);
   const signalMatRef = useRef<THREE.MeshBasicMaterial>(null);
 
   const ringMatRefs = useRef<(THREE.MeshPhysicalMaterial | null)[]>([]);
   const edgeMats = useRef<(THREE.MeshBasicMaterial | null)[]>([]);
+
+  // Pointer-near boost (Section 6d): eased 0..1, ~300ms time constant. The
+  // exp form is unconditionally stable for any delta (factor stays in [0,1]),
+  // so a large resume delta after a pause cannot overshoot.
+  const nearAmt = useRef(0);
+  // Canvas-relative pointer position in CSS px from the canvas centre, from
+  // a window-level listener: the hero's content layer (z-10) sits above the
+  // canvas and swallows events over the Core region itself, so a canvas-
+  // element listener would miss exactly the near-centre moves this boost
+  // exists for — and R3F's state.pointer freezes while the cursor is over
+  // the text. null until the first real move (R3F's (0,0)=centre default
+  // would otherwise read as "near" before the mouse has ever moved).
+  const pointerPx = useRef<{ x: number; y: number } | null>(null);
+  const finePointer = useMemo(
+    () =>
+      typeof window !== 'undefined' &&
+      window.matchMedia('(pointer: fine)').matches,
+    []
+  );
+  useEffect(() => {
+    if (!finePointer) return;
+    const onMove = (e: PointerEvent) => {
+      const rect = gl.domElement.getBoundingClientRect();
+      pointerPx.current = {
+        x: e.clientX - (rect.left + rect.width / 2),
+        y: e.clientY - (rect.top + rect.height / 2),
+      };
+    };
+    window.addEventListener('pointermove', onMove, { passive: true });
+    return () => window.removeEventListener('pointermove', onMove);
+  }, [gl, finePointer]);
 
   const baseColors = useMemo(
     () => ({
@@ -65,13 +102,27 @@ export function OrbitalRings({ stateRef, thinkStartRef }: SharedProps) {
     []
   );
 
-  useFrame((state, delta) => {
+  useFrame((_state, delta) => {
     const thinking = stateRef.current === 'thinking';
     const ts = (performance.now() - thinkStartRef.current) / 1000;
     const bump = thinking ? thinkBump(ts) : 0;
     const align = thinking ? alignBeat(ts) : 0;
     // Emit reflection flash, centred on the emit beat, ~400ms wide.
     const flash = thinking ? Math.exp(-Math.pow((ts - 1.9) / 0.2, 2)) : 0;
+
+    // Pointer-near-Core (Section 6d): on/off at ~400px from the canvas
+    // centre (the Core sits at the centre of the hero-sized canvas), not
+    // scaled with distance — a flat "the Core notices the cursor" beat.
+    let nearTarget = 0;
+    if (finePointer && pointerPx.current) {
+      if (
+        Math.hypot(pointerPx.current.x, pointerPx.current.y) < 400
+      ) {
+        nearTarget = 1;
+      }
+    }
+    nearAmt.current +=
+      (nearTarget - nearAmt.current) * (1 - Math.exp(-delta / 0.3));
 
     RINGS.forEach((r, i) => {
       const g = groupRefs.current[i];
@@ -93,11 +144,17 @@ export function OrbitalRings({ stateRef, thinkStartRef }: SharedProps) {
       const rm = ringMatRefs.current[i];
       if (rm) {
         if (rm.envMap !== scene.environment) rm.envMap = scene.environment;
-        rm.envMapIntensity = ENV_BASE + (ENV_FLASH - ENV_BASE) * flash;
+        // +20% while the pointer is near (eased above) — on top of the emit
+        // flash, never instead of it.
+        rm.envMapIntensity =
+          (ENV_BASE + (ENV_FLASH - ENV_BASE) * flash) *
+          (1 + 0.2 * nearAmt.current);
       }
     });
 
     // THE single expanding signal ring (emit ~1.8s). Invisible otherwise.
+    // Error cycles emit a dimmer, red-tinted ring instead of the cyan one
+    // (Section 2) — the "intelligence hit a problem" beat.
     const mesh = signalRef.current;
     const mat = signalMatRef.current;
     if (mesh && mat) {
@@ -105,7 +162,8 @@ export function OrbitalRings({ stateRef, thinkStartRef }: SharedProps) {
         const k = (ts - 1.7) / 0.9;
         mesh.visible = true;
         mesh.scale.setScalar(0.4 + 1.8 * k);
-        mat.opacity = 0.85 * (1 - k);
+        mat.color.copy(errorRef.current ? colors.error : baseColors.signal);
+        mat.opacity = (errorRef.current ? 0.45 : 0.85) * (1 - k);
       } else if (mesh.visible) {
         mesh.visible = false;
       }

@@ -15,7 +15,17 @@ import { smoothstep, type SharedProps } from './IntelligenceCore';
 // Thinking: contracts (dips to 0.75x), flashes to a 3.5 peak at the ~1.5s
 // pulse beat, then eases back — no snaps anywhere. The flash is sized so the
 // peak lands on 3.5: 1.2 (level) * 0.75 (contraction) * 3.9 (flash) = 3.5.
-export function CoreCenter({ stateRef, thinkStartRef, colors }: SharedProps) {
+//
+// Error variant (Section 2): a resolve carrying `error` tints the core red at
+// the emit beat instead of resolving to cyan, with a dimmer flash (~2.2 peak)
+// — the "intelligence hit a problem" beat. The 0.08/frame emissive ease keeps
+// both the jump into red and the return to idle violet smooth.
+export function CoreCenter({
+  stateRef,
+  thinkStartRef,
+  errorRef,
+  colors,
+}: SharedProps) {
   const matRef = useRef<THREE.MeshStandardMaterial>(null);
   const haloRef = useRef<THREE.MeshBasicMaterial>(null);
   const lightRef = useRef<THREE.PointLight>(null);
@@ -36,6 +46,11 @@ export function CoreCenter({ stateRef, thinkStartRef, colors }: SharedProps) {
 
     if (!thinking) {
       target.copy(colors.idle);
+    } else if (errorRef.current) {
+      // Violet -> blue through the active window, red at the emit beat
+      // (earlier than the cyan resolution, so the failure reads as the emit).
+      target.copy(colors.idle).lerp(colors.active, smoothstep(1.0, 2.2, ts));
+      target.lerp(colors.error, smoothstep(1.6, 2.2, ts));
     } else {
       // Violet -> blue through the active window, cyan at resolution.
       target.copy(colors.idle).lerp(colors.active, smoothstep(1.0, 2.2, ts));
@@ -49,8 +64,10 @@ export function CoreCenter({ stateRef, thinkStartRef, colors }: SharedProps) {
 
       const idleLevel = 1.2;
       const contraction = 1 - 0.25 * smoothstep(0, 1.2, ts);
+      // Error flashes dimmer (peak ≈ 2.2 vs 3.5): 1.2 * 0.75 * 2.44.
+      const flashPeak = errorRef.current ? 1.44 : 2.9;
       const flash = thinking
-        ? 1 + 2.9 * Math.exp(-Math.pow((ts - 1.5) / 0.18, 2))
+        ? 1 + flashPeak * Math.exp(-Math.pow((ts - 1.5) / 0.18, 2))
         : 1;
       mat.emissiveIntensity = thinking
         ? idleLevel * breathNorm * contraction * flash

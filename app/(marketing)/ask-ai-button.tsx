@@ -5,7 +5,17 @@ import { dispatchOpenChat } from './open-chat';
 
 export function AskAiButton() {
   return (
-    <Button size="lg" variant="outline" onClick={dispatchOpenChat}>
+    <Button
+      size="lg"
+      variant="outline"
+      onClick={() => {
+        // Hero CTA (Section 3): give visitors a visual preview of the Core
+        // responding the moment they ask, in addition to opening the widget.
+        // No-op if the Core is already mid-cycle (recent autofire).
+        window.dispatchEvent(new CustomEvent('supportai:core:think'));
+        dispatchOpenChat();
+      }}
+    >
       Ask the AI
     </Button>
   );

@@ -113,6 +113,11 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
     const text = input.trim();
     if (!text || busy || !sessionId) return;
     setInput('');
+    // Core wiring (Section 2): think fires the instant the user sends —
+    // before the API call resolves — so the artifact starts contracting while
+    // the request is still in flight. After the guard, so an empty-input
+    // Enter never triggers it. Streaming and the API call are untouched.
+    window.dispatchEvent(new CustomEvent('supportai:core:think'));
     void sendMessage({ text });
   }
 
@@ -130,6 +135,31 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
     busy &&
     lastMessage?.role === 'assistant' &&
     !lastMessage.parts.some((p) => p.type === 'text');
+
+  // Core wiring (Section 2): resolve when the answer starts appearing. Edge
+  // on `awaitingFirstToken` going true → false — that is the moment the first
+  // text part lands (or a tool-only turn ends with no text at all, where
+  // status flips straight to 'ready' and the guard below still lets it
+  // through). The error transition owns its own resolve, so it is excluded
+  // here to avoid a double dispatch. Nothing inside useChat is modified.
+  const wasAwaitingRef = useRef(false);
+  useEffect(() => {
+    const prev = wasAwaitingRef.current;
+    wasAwaitingRef.current = awaitingFirstToken;
+    if (!prev || awaitingFirstToken) return;
+    if (status === 'error') return;
+    window.dispatchEvent(new CustomEvent('supportai:core:resolve'));
+  }, [awaitingFirstToken, status]);
+
+  // Chat failure (Section 2): dimmer, red-tinted emit. The Core no-ops if it
+  // is not currently thinking (e.g. a retry after the cycle already settled).
+  useEffect(() => {
+    if (status === 'error') {
+      window.dispatchEvent(
+        new CustomEvent('supportai:core:resolve', { detail: { error: true } })
+      );
+    }
+  }, [status]);
 
   return (
     <motion.div

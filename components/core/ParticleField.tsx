@@ -122,6 +122,7 @@ function buildField(count: number, maxSegs: number): FieldData {
 export function ParticleField({
   stateRef,
   thinkStartRef,
+  quietRef,
   colors,
   tier,
   degraded,
@@ -177,10 +178,13 @@ export function ParticleField({
     const thinking = stateRef.current === 'thinking';
     const ts = (performance.now() - thinkStartRef.current) / 1000;
     const bump = thinking ? thinkBump(ts) : 0;
+    // Quiet state (Section 6c): after 45s with no interaction the drift runs
+    // 40% slower — the system has gone quiet, subtle but still alive.
+    const quiet = quietRef.current;
 
     // Anticipation beat: motion briefly eases near peak compression.
     const dip = thinking ? Math.exp(-Math.pow((ts - 1.3) / 0.12, 2)) : 0;
-    driftTime.current += dt * (1 - 0.45 * dip);
+    driftTime.current += dt * (1 - 0.45 * dip) * (quiet ? 0.6 : 1);
     const dtm = driftTime.current;
 
     const radiusF = 1 - 0.32 * bump;
@@ -276,7 +280,7 @@ export function ParticleField({
     // (local origin) means it does not move under the group's rotation, so the
     // Trail records a single static point — no stale arc when it re-shows.
     if (trailsRef.current) {
-      const active = thinking && ts < 3.0;
+      const active = thinking && ts < 3.0 && !quiet;
       trailsRef.current.visible = active;
       const idx = data.trailIdx;
       for (let k = 0; k < idx.length; k++) {
