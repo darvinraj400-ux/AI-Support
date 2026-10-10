@@ -11,7 +11,7 @@ import { GlassShell } from './GlassShell';
 import { NeuralGeometry } from './NeuralGeometry';
 import { OrbitalRings } from './OrbitalRings';
 import { ParticleField, particleCountFor } from './ParticleField';
-import { consumePendingThink } from './CoreTrigger';
+import { consumePendingThink, type ThinkSource } from './CoreTrigger';
 
 export type CoreState = 'idle' | 'thinking';
 export type CoreTier = 'high' | 'medium' | 'low';
@@ -27,9 +27,16 @@ export type CorePalette = {
 export type SharedProps = {
   /** Mutable machine state — read in useFrame, never triggers renders. */
   stateRef: React.MutableRefObject<CoreState>;
-  /** performance.now() ms of the current thinking start (-Infinity idle). */
+  /** performance.now() ms of the current thinking start (-Infinity idle).
+   *  Written ONCE per cycle and never moved — a jumping think start would
+   *  snap every thinkBump consumer in one frame (M1). */
   thinkStartRef: React.MutableRefObject<number>;
-  /** True for a thinking cycle triggered by a chat error (red emit). */
+  /** performance.now() ms of the emit beat (-Infinity until the beat fires:
+   *  pre-scheduled at think+EMIT_PEAK_MS for preview; set to `now` at
+   *  resolve / the 8s watchdog for chat). Drives the signal ring, ring
+   *  glint, Core flash, and both color ramps. */
+  emitStartRef: React.MutableRefObject<number>;
+  /** True once a resolve carrying error:true tinted this cycle red. */
   errorRef: React.MutableRefObject<boolean>;
   /** True after 45s with no user interaction — the "gone quiet" state. */
   quietRef: React.MutableRefObject<boolean>;
@@ -50,10 +57,19 @@ function readToken(name: string, fallback: string): string {
   }
 }
 
+/** Envelope length. Preview cycles end here; every cycle's finish is
+ *  never earlier than thinkStart + THINK_MS so thinkBump always reaches 0
+ *  before the state flips — no snap at idle. */
 const THINK_MS = 4000;
-/** Timeline point a `resolve` jumps to — the emit beat, where the signal
- *  ring and env flash fire so the Core's "answer" lands with the first token. */
-const EMIT_TS = 1.8;
+/** Flash peak of a scheduled (preview) emit, ms after think start. The
+ *  signal ring opens +200ms later — window [0.2, 1.1] on the emit clock,
+ *  identical to the old ts [1.7, 2.6]. */
+const EMIT_PEAK_MS = 1500;
+/** Chat only: no resolve by now → force a cyan emit, then settle. */
+const WATCHDOG_MS = 8000;
+/** Once the emit has fired, the cycle lives at least this long so the ring
+ *  (emitTs 0.2–1.1) and cyan ramp (1.7–2.1) play out in full. */
+const EMIT_SETTLE_MS = 2200;
 
 export function IntelligenceCore({
   tier,
@@ -67,6 +83,7 @@ export function IntelligenceCore({
 }) {
   const stateRef = useRef<CoreState>('idle');
   const thinkStartRef = useRef<number>(-Infinity);
+  const emitStartRef = useRef<number>(-Infinity);
   const errorRef = useRef(false);
   const quietRef = useRef(false);
 
@@ -76,41 +93,91 @@ export function IntelligenceCore({
       idle: new THREE.Color(readToken('--accent-idle', '#8b5cf6')),
       active: new THREE.Color(readToken('--accent-active', '#3b82f6')),
       response: new THREE.Color(readToken('--accent-response', '#22d3ee')),
-      // Same Layer A token the chat UI paints failures with.
-      error: new THREE.Color(readToken('--destructive', '#ef4444')),
+      // The Core's own failure token (globals.css --accent-error),
+      // matched to the chat UI's destructive red.
+      error: new THREE.Color(readToken('--accent-error', '#ef4444')),
     }),
     []
   );
 
   // Think / resolve event API (Section 2). Both handlers live in one effect
-  // so they share a single timer: a resolve cancels the full 4s cycle and
-  // re-schedules the settle on the (possibly jumped) timeline.
+  // so they share a single timer: a resolve fires the emit beat (chat /
+  // failure) and re-arms the settle — the think timeline itself never jumps.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let replay: ReturnType<typeof setTimeout> | undefined;
 
+    // Source of the live cycle, read by resolve to decide WHEN (not
+    // whether) the emit fires. Effect-closure state, not SharedProps:
+    // no visual component branches on it — timing is fully encoded in
+    // emitStartRef.
+    let thinkSource: ThinkSource = 'preview';
+
     const finish = () => {
       stateRef.current = 'idle';
       thinkStartRef.current = -Infinity;
+      emitStartRef.current = -Infinity;
       errorRef.current = false;
-    };
-    const startThink = () => {
-      stateRef.current = 'thinking';
-      thinkStartRef.current = performance.now();
-      // A previous cycle's error must never tint this one.
-      errorRef.current = false;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(finish, THINK_MS);
     };
 
-    const handleThink = () => {
+    // Single timer for the whole cycle (function declaration: it and
+    // onTimer mutually recurse). Never earlier than thinkStart+THINK_MS
+    // (bump envelope must be 0 at the flip) and, once the emit has
+    // fired, never earlier than emitStart+EMIT_SETTLE_MS (beat must play
+    // out). With no emit scheduled (chat awaiting resolve) it arms the
+    // 8s watchdog instead.
+    function scheduleFinish() {
+      const now = performance.now();
+      const at =
+        emitStartRef.current === -Infinity
+          ? thinkStartRef.current + WATCHDOG_MS
+          : Math.max(
+              thinkStartRef.current + THINK_MS,
+              emitStartRef.current + EMIT_SETTLE_MS
+            );
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(onTimer, Math.max(0, at - now));
+    }
+
+    function onTimer() {
+      if (stateRef.current !== 'thinking') return;
+      if (emitStartRef.current === -Infinity) {
+        // 8s watchdog: chat never resolved (hung request). Force a cyan
+        // emit — the cycle must settle instead of hanging — then re-arm
+        // for the settle window.
+        emitStartRef.current = performance.now();
+        scheduleFinish();
+        return;
+      }
+      finish();
+    }
+
+    const startThink = (source: ThinkSource) => {
+      const now = performance.now();
+      stateRef.current = 'thinking';
+      thinkStartRef.current = now;
+      thinkSource = source;
+      // Preview pre-schedules its emit on the think timeline (timer-driven,
+      // Section 4). Chat leaves it pending — the answer fires the beat.
+      emitStartRef.current =
+        source === 'preview' ? now + EMIT_PEAK_MS : -Infinity;
+      // A previous cycle's error must never tint this one.
+      errorRef.current = false;
+      scheduleFinish();
+    };
+
+    const handleThink = (event: Event) => {
       // Consumed even when ignored, so a think that lands mid-cycle cannot
       // leave a stale pending flag behind for a later remount to replay.
       consumePendingThink();
       // Ignore while already thinking — a second think 100ms later must not
       // restart the cycle (Section 7).
       if (stateRef.current !== 'idle') return;
-      startThink();
+      // Missing detail.source (any external dispatcher) counts as a
+      // preview: the safe timer-driven cycle.
+      const source = (event as CustomEvent<{ source?: string } | undefined>)
+        .detail?.source;
+      startThink(source === 'chat' ? 'chat' : 'preview');
     };
 
     const handleResolve = (event: Event) => {
@@ -118,33 +185,35 @@ export function IntelligenceCore({
       if (stateRef.current !== 'thinking') return;
       const detail = (event as CustomEvent<{ error?: boolean }>).detail;
       const isError = detail?.error === true;
-
       const now = performance.now();
-      const curTs = (now - thinkStartRef.current) / 1000;
-      // A mid-stream failure landing after the emit beat must not retint an
-      // already-fired signal ring (mat.color is a hard per-frame copy — the
-      // ring would snap cyan→red in one frame). The chat panel's error UI is
-      // the report; the Core finishes this cycle as a normal response.
-      if (isError && curTs >= EMIT_TS) return;
+
+      // M2: EVERY failure tints the Core red for the remainder of the
+      // cycle — no early-return once the beat has gone by. The signal
+      // ring eases cyan→red in place if it is still expanding
+      // (OrbitalRings), so a late retint never snaps.
       errorRef.current = isError;
 
-      // Jump to the emit beat so the signal ring fires with the answer
-      // appearing — but only before the ~1.5s pulse. Landing across a
-      // gaussian peak would snap emissive intensity and ring tilt in a
-      // single frame; past the pulse the emit has already gone by.
-      if (curTs < 1.2) {
-        thinkStartRef.current = now - EMIT_TS * 1000;
+      // Emit rules — thinkStartRef is NEVER moved (M1):
+      //   chat     → the answer fires the beat (a no-op if the watchdog
+      //              already fired it). emitStart = now, so the flash
+      //              gaussian peaks exactly at resolve and the ring opens
+      //              200ms later (emitTs 0.2) — synced to the answer.
+      //   preview  → keeps its scheduled think+1.5s beat on success, but
+      //              a failure beats the schedule so the red ring lands
+      //              with the error (the M2 "fire red immediately" rule,
+      //              expressed as an emit-clock move instead of a
+      //              thinkStartRef jump).
+      const emitPending = emitStartRef.current === -Infinity;
+      const emitScheduledAhead = emitStartRef.current > now;
+      if (
+        (isError || thinkSource === 'chat') &&
+        (emitPending || emitScheduledAhead)
+      ) {
+        emitStartRef.current = now;
       }
-      // Settle at ts≈4.0 on the live timeline so the response color and
-      // thinkBump fades play out naturally. Derived from the current start
-      // (not a fixed 2200ms), so a late resolve that skipped the jump
-      // shortens correctly instead of overrunning the envelope.
-      const remaining = Math.max(
-        0,
-        THINK_MS - (performance.now() - thinkStartRef.current)
-      );
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(finish, remaining);
+      // Re-arm the single timer: ≥ THINK_MS from the think start (bump
+      // envelope) and ≥ EMIT_SETTLE_MS from the beat (ring + ramps).
+      scheduleFinish();
     };
 
     window.addEventListener('supportai:core:think', handleThink);
@@ -160,7 +229,9 @@ export function IntelligenceCore({
     // from a clean idle state.
     if (stateRef.current === 'idle') {
       replay = setTimeout(() => {
-        if (stateRef.current === 'idle' && consumePendingThink()) startThink();
+        if (stateRef.current !== 'idle') return;
+        const source = consumePendingThink();
+        if (source) startThink(source);
       }, 0);
     }
 
@@ -199,6 +270,7 @@ export function IntelligenceCore({
   const shared: SharedProps = {
     stateRef,
     thinkStartRef,
+    emitStartRef,
     errorRef,
     quietRef,
     colors,

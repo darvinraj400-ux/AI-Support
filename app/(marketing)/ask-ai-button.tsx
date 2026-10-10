@@ -12,7 +12,9 @@ export function AskAiButton() {
         // Hero CTA (Section 3): give visitors a visual preview of the Core
         // responding the moment they ask, in addition to opening the widget.
         // No-op if the Core is already mid-cycle (recent autofire).
-        window.dispatchEvent(new CustomEvent('supportai:core:think'));
+        window.dispatchEvent(
+          new CustomEvent('supportai:core:think', { detail: { source: 'preview' } })
+        );
         dispatchOpenChat();
       }}
     >

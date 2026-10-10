@@ -70,6 +70,7 @@
   --accent-idle: #8b5cf6;
   --accent-active: #3b82f6;
   --accent-response: #22d3ee;
+  --accent-error: #ef4444;
   --card: #1a1a24;
   --card-foreground: #f0f0f5;
   --popover: #12121a;
@@ -117,6 +118,7 @@
   --accent-idle: #8b5cf6;
   --accent-active: #3b82f6;
   --accent-response: #22d3ee;
+  --accent-error: #ef4444;
   --card: #1a1a24;
   --card-foreground: #f0f0f5;
   --popover: #12121a;

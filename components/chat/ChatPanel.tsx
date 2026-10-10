@@ -117,7 +117,7 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
     // before the API call resolves — so the artifact starts contracting while
     // the request is still in flight. After the guard, so an empty-input
     // Enter never triggers it. Streaming and the API call are untouched.
-    window.dispatchEvent(new CustomEvent('supportai:core:think'));
+    window.dispatchEvent(new CustomEvent('supportai:core:think', { detail: { source: 'chat' } }));
     void sendMessage({ text });
   }
 

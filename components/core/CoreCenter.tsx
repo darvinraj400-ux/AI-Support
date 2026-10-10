@@ -12,17 +12,20 @@ import { smoothstep, type SharedProps } from './IntelligenceCore';
 // Section 5 is applied as a level on top (breath is normalised by its 1.05
 // centre, giving an idle band of ~0.91 – 1.49 around the 1.2 target).
 //
-// Thinking: contracts (dips to 0.75x), flashes to a 3.5 peak at the ~1.5s
-// pulse beat, then eases back — no snaps anywhere. The flash is sized so the
+// Thinking: contracts (dips to 0.75x), flashes to a 3.5 peak on the emit
+// beat (preview: think+1.5s exactly as before; chat: when the answer
+// lands), then eases back — no snaps anywhere. The flash is sized so the
 // peak lands on 3.5: 1.2 (level) * 0.75 (contraction) * 3.9 (flash) = 3.5.
 //
-// Error variant (Section 2): a resolve carrying `error` tints the core red at
-// the emit beat instead of resolving to cyan, with a dimmer flash (~2.2 peak)
-// — the "intelligence hit a problem" beat. The 0.08/frame emissive ease keeps
-// both the jump into red and the return to idle violet smooth.
+// Error variant (Section 2): a resolve carrying `error` tints the core red
+// for the remainder of the cycle instead of resolving to cyan, with a
+// dimmer flash (~2.2 peak) — the "intelligence hit a problem" beat. The
+// 0.08/frame emissive ease keeps both the ramp into red and the return to
+// idle violet smooth.
 export function CoreCenter({
   stateRef,
   thinkStartRef,
+  emitStartRef,
   errorRef,
   colors,
 }: SharedProps) {
@@ -38,24 +41,38 @@ export function CoreCenter({
     const t = state.clock.elapsedTime;
     const thinking = stateRef.current === 'thinking';
     const ts = (performance.now() - thinkStartRef.current) / 1000;
+    // Emit clock: -Infinity until the beat fires so every ramp below is 0
+    // while chat waits for its answer (a raw (now - -Infinity) would be
+    // +Infinity and saturate the success ramp to full cyan pre-emit).
+    // When the beat fires, emitStart = now, so emitTs starts at 0 — the
+    // flash gaussian peaks exactly at resolve for chat and at think+1.5s
+    // for a preview's scheduled emit.
+    const emitTs =
+      emitStartRef.current === -Infinity
+        ? -Infinity
+        : (performance.now() - emitStartRef.current) / 1000;
 
     // Breath in [0.8, 1.3] (Section 10), centred at 1.05 so it never
     // approaches blackout the way a literal `0.8 + 0.5*sin` would.
     const breath = 1.05 + 0.25 * Math.sin((2 * Math.PI * t) / 4);
     const breathNorm = breath / 1.05;
 
-    if (!thinking) {
-      target.copy(colors.idle);
-    } else if (errorRef.current) {
-      // Violet -> blue through the active window, red at the emit beat
-      // (earlier than the cyan resolution, so the failure reads as the emit).
-      target.copy(colors.idle).lerp(colors.active, smoothstep(1.0, 2.2, ts));
-      target.lerp(colors.error, smoothstep(1.6, 2.2, ts));
-    } else {
-      // Violet -> blue through the active window, cyan at resolution.
-      target.copy(colors.idle).lerp(colors.active, smoothstep(1.0, 2.2, ts));
-      target.lerp(colors.response, smoothstep(3.2, 3.6, ts));
-    }
+      if (!thinking) {
+        target.copy(colors.idle);
+      } else if (errorRef.current) {
+        // Violet -> blue on the think clock; red on the EMIT clock
+        // (0.1–0.7s after the beat). A failure at any ts therefore tints
+        // the Core red for the remainder of the cycle; the 0.08/frame
+        // emissive ease smooths it in (M2, no snap).
+        target.copy(colors.idle).lerp(colors.active, smoothstep(1.0, 2.2, ts));
+        target.lerp(colors.error, smoothstep(0.1, 0.7, emitTs));
+      } else {
+        // Violet -> blue on the think clock; cyan 1.7–2.1s after the emit
+        // (the same offset from the beat the old ts 3.2–3.6 had from think
+        // start: preview timing unchanged, chat synced to the answer).
+        target.copy(colors.idle).lerp(colors.active, smoothstep(1.0, 2.2, ts));
+        target.lerp(colors.response, smoothstep(1.7, 2.1, emitTs));
+      }
 
     // Exponential ease toward the target: continuous across state flips.
     const mat = matRef.current;
@@ -66,8 +83,12 @@ export function CoreCenter({
       const contraction = 1 - 0.25 * smoothstep(0, 1.2, ts);
       // Error flashes dimmer (peak ≈ 2.2 vs 3.5): 1.2 * 0.75 * 2.44.
       const flashPeak = errorRef.current ? 1.44 : 2.9;
+      // Flash on the EMIT clock (peak at emitTs=0): preview peaks at
+      // think+1.5s exactly as before; chat peaks when the answer lands
+      // (emitStart = now at resolve). Pre-emit, emitTs=-Infinity → exp→0
+      // → no flash while waiting.
       const flash = thinking
-        ? 1 + flashPeak * Math.exp(-Math.pow((ts - 1.5) / 0.18, 2))
+        ? 1 + flashPeak * Math.exp(-Math.pow(emitTs / 0.18, 2))
         : 1;
       mat.emissiveIntensity = thinking
         ? idleLevel * breathNorm * contraction * flash

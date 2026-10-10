@@ -51,6 +51,7 @@ function alignBeat(ts: number): number {
 export function OrbitalRings({
   stateRef,
   thinkStartRef,
+  emitStartRef,
   errorRef,
   colors,
 }: SharedProps) {
@@ -107,8 +108,19 @@ export function OrbitalRings({
     const ts = (performance.now() - thinkStartRef.current) / 1000;
     const bump = thinking ? thinkBump(ts) : 0;
     const align = thinking ? alignBeat(ts) : 0;
-    // Emit reflection flash, centred on the emit beat, ~400ms wide.
-    const flash = thinking ? Math.exp(-Math.pow((ts - 1.9) / 0.2, 2)) : 0;
+    // Emit clock: -Infinity until the beat fires (chat waits for its
+    // answer), so glint and ring stay dormant while thinking.
+    const emitTs =
+      emitStartRef.current === -Infinity
+        ? -Infinity
+        : (performance.now() - emitStartRef.current) / 1000;
+    // Emit reflection flash, ~400ms wide, peaked with the Core flash on
+    // the emit clock (preview: think+1.5s; chat: the answer) so the rings
+    // catch the environment exactly as the center lights up. (Re-centered
+    // from ts 1.9: this is the only glint formulation that starts from
+    // baseline for a deferred emit — a 0.4-offset gaussian would read 96%
+    // at resolve and pop.)
+    const flash = thinking ? Math.exp(-Math.pow(emitTs / 0.2, 2)) : 0;
 
     // Pointer-near-Core (Section 6d): on/off at ~400px from the canvas
     // centre (the Core sits at the centre of the hero-sized canvas), not
@@ -152,18 +164,35 @@ export function OrbitalRings({
       }
     });
 
-    // THE single expanding signal ring (emit ~1.8s). Invisible otherwise.
-    // Error cycles emit a dimmer, red-tinted ring instead of the cyan one
-    // (Section 2) — the "intelligence hit a problem" beat.
+    // THE single expanding signal ring, on the EMIT clock — window
+    // (0.2, 1.1) after the beat, identical to the old ts (1.7, 2.6) for a
+    // preview's think+1.5s schedule. A deferred emit (chat resolve or
+    // 8s watchdog) sets emitStart = now, so the ring opens 200ms after the
+    // beat — an appearance from nothing, not a mid-expansion snap. Error
+    // cycles emit a dimmer, red-tinted ring (Section 2); an error landing
+    // MID-expansion EASES the color (0.12/frame, matching CoreCenter's
+    // emissive ease) instead of hard-copying, so cyan→red never pops (M2's
+    // "no second emit, just retint").
     const mesh = signalRef.current;
     const mat = signalMatRef.current;
     if (mesh && mat) {
-      if (thinking && ts > 1.7 && ts < 2.6) {
-        const k = (ts - 1.7) / 0.9;
+      if (thinking && emitTs > 0.2 && emitTs < 1.1) {
+        const k = (emitTs - 0.2) / 0.9;
+        const fresh = !mesh.visible;
         mesh.visible = true;
         mesh.scale.setScalar(0.4 + 1.8 * k);
-        mat.color.copy(errorRef.current ? colors.error : baseColors.signal);
-        mat.opacity = (errorRef.current ? 0.45 : 0.85) * (1 - k);
+        const targetColor = errorRef.current ? colors.error : baseColors.signal;
+        const targetOpacity = (errorRef.current ? 0.45 : 0.85) * (1 - k);
+        if (fresh) {
+          // First frame of this expansion: land on the right color so a
+          // fast failure's ring is red from its very first visible frame.
+          mat.color.copy(targetColor);
+          mat.opacity = targetOpacity;
+        } else {
+          // Mid-expansion retint (M2): ease, never copy.
+          mat.color.lerp(targetColor, 0.12);
+          mat.opacity += (targetOpacity - mat.opacity) * 0.12;
+        }
       } else if (mesh.visible) {
         mesh.visible = false;
       }

@@ -15,17 +15,20 @@ const STORAGE_KEY = 'supportai_core_autofired';
 // dynamic import), so its listener is always armed first. It records the
 // dispatch; IntelligenceCore consumes the flag on mount and replays the think.
 //
-// A boolean flag, not a timestamp window: a slow connection can take longer
-// than any fixed window to parse the chunk. Staleness is bounded two ways:
-// the unmount cleanup below clears the flag (no consumer will ever exist for
-// an instance that went away, Strict Mode's simulated unmount included), and
-// the resolve listener drops a think whose answer already rendered.
-let pendingThink = false;
+// A source-tagged value, not a timestamp window: a slow connection can take
+// longer than any fixed window to parse the chunk. Staleness is bounded two
+// ways: the unmount cleanup below clears the buffer (no consumer will ever
+// exist for an instance that went away, Strict Mode's simulated unmount
+// included), and the resolve listener drops a think whose answer already
+// rendered.
+export type ThinkSource = 'chat' | 'preview';
 
-/** Consume a buffered think. Returns true if one was pending. */
-export function consumePendingThink(): boolean {
+let pendingThink: ThinkSource | null = null;
+
+/** Consume a buffered think. Returns its source, or null if none pending. */
+export function consumePendingThink(): ThinkSource | null {
   const had = pendingThink;
-  pendingThink = false;
+  pendingThink = null;
   return had;
 }
 
@@ -36,16 +39,21 @@ export function consumePendingThink(): boolean {
 // so SSR never sees them.
 export function CoreTrigger() {
   useEffect(() => {
-    // Buffer every think dispatch so a not-yet-mounted Core can replay it.
-    const noteThink = () => {
-      pendingThink = true;
+    // Buffer every think dispatch so a not-yet-mounted Core can replay it,
+    // carrying its source so the replay keeps chat/preview timing.
+    const noteThink = (event: Event) => {
+      const source = (event as CustomEvent<{ source?: string } | undefined>)
+        .detail?.source;
+      // Missing/unknown source (any external dispatcher) is a preview:
+      // the safe timer-driven cycle, never the resolve-driven chat cycle.
+      pendingThink = source === 'chat' ? 'chat' : 'preview';
     };
-    // A resolve arriving while the flag is still set means no Core consumed
+    // A resolve arriving while the buffer is still set means no Core consumed
     // the matching think (the live listener always consumes on dispatch):
     // the answer is already on screen, so drop the think instead of letting
     // a future mount replay a full cycle after the fact.
     const noteResolve = () => {
-      pendingThink = false;
+      pendingThink = null;
     };
     window.addEventListener('supportai:core:think', noteThink);
     window.addEventListener('supportai:core:resolve', noteResolve);
@@ -70,17 +78,19 @@ export function CoreTrigger() {
           // Storage unavailable (private mode / sandboxed iframe): the
           // autofire still runs this visit, just not gated next time.
         }
-        window.dispatchEvent(new CustomEvent('supportai:core:think'));
+        window.dispatchEvent(
+          new CustomEvent('supportai:core:think', { detail: { source: 'preview' } })
+        );
       }, AUTOFIRE_MS);
     }
 
     return () => {
       window.removeEventListener('supportai:core:think', noteThink);
       window.removeEventListener('supportai:core:resolve', noteResolve);
-      // Under Strict Mode the same fiber remounts after this cleanup; a flag
+      // Under Strict Mode the same fiber remounts after this cleanup; a value
       // buffered by the first instance must not leak into the second. A real
       // unmount has no future consumer either — clearing is always correct.
-      pendingThink = false;
+      pendingThink = null;
       if (timer) clearTimeout(timer);
     };
   }, []);
