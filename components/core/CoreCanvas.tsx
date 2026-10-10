@@ -4,28 +4,30 @@ import dynamic from 'next/dynamic';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useReducedMotion } from 'framer-motion';
 import { CoreTrigger } from './CoreTrigger';
-
-// Static fallback: same silhouette and language, zero WebGL. Used for
-// reduced motion and as the lazy-load placeholder.
-export function StaticCore({ className }: { className?: string }) {
-  return (
-    <div
-      aria-hidden
-      className={className}
-      style={{
-        background:
-          'radial-gradient(circle at 50% 50%, rgba(139,92,246,0.16), rgba(59,130,246,0.05) 42%, transparent 66%)',
-      }}
-    />
-  );
-}
+import { StaticCoreFallback } from './StaticCoreFallback';
 
 // The ONLY three.js touchpoint in the page bundle: everything behind this
 // boundary (three, fiber, drei) loads lazily, client-side only.
 const LazyCoreScene = dynamic(() => import('./IntelligenceCore'), {
   ssr: false,
-  loading: () => <StaticCore className="absolute inset-0" />,
+  loading: () => <StaticCoreFallback className="absolute inset-0" />,
 });
+
+// Explicit WebGL probe (client-only): a null context means the live scene
+// can never mount, so skip loading three.js entirely and render the static
+// snapshot. Separate from the tier-null path inside the lazy chunk, which
+// stays as the second line of defense.
+function webglAvailable(): boolean {
+  try {
+    const testCanvas = document.createElement('canvas');
+    const gl =
+      testCanvas.getContext('webgl2') || testCanvas.getContext('webgl');
+    if (!gl) throw new Error('No WebGL');
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function CoreCanvas() {
   const reduceMotion = useReducedMotion();
@@ -46,14 +48,19 @@ export function CoreCanvas() {
   // placeholder, so reduced-motion users never hit a hydration mismatch
   // (server cannot know their media preference).
   const [mounted, setMounted] = useState(false);
+  // Sticky swap on context loss: no auto-restoration (avoids a broken state).
+  const [ctxLost, setCtxLost] = useState(false);
+  const [hasWebgl, setHasWebgl] = useState(true);
   useEffect(() => {
     setMounted(true);
+    setHasWebgl(webglAvailable());
   }, []);
 
   // Scroll fade: 1.0 → 0.2 over the first 200px past the hero top, then
   // pause rendering when sufficiently off-screen. Tab-hidden and window-blur
   // pause too (Section 6a). DOM stays mounted throughout — the scene is never
-  // recreated.
+  // recreated. The fade also drives the static fallback (same wrapper), but
+  // is skipped under prefers-reduced-motion.
   useEffect(() => {
     let raf = 0;
     const update = () => {
@@ -62,7 +69,10 @@ export function CoreCanvas() {
       const past = Math.max(0, -el.getBoundingClientRect().top);
       const progress = Math.min(1, past / 200);
       scrollRef.current = progress;
-      el.style.opacity = String(1 - 0.8 * progress);
+      const reduce = window.matchMedia(
+        '(prefers-reduced-motion: reduce)'
+      ).matches;
+      el.style.opacity = reduce ? '1' : String(1 - 0.8 * progress);
       const hidden = document.visibilityState === 'hidden';
       setRunning(!hidden && !blurredRef.current && past < 600);
     };
@@ -93,15 +103,21 @@ export function CoreCanvas() {
     };
   }, []);
 
-  // Reduced motion: static fallback, no WebGL at all.
+  // Static snapshot for every non-WebGL path: reduced motion (no WebGL at
+  // all), explicit WebGL-unavailable probe, or a lost context mid-session.
   // Pre-mount placeholder keeps SSR and hydration output identical.
+  const showFallback = reduceMotion || ctxLost || !hasWebgl;
   const content = !mounted ? (
     <div className="absolute inset-0" />
-  ) : reduceMotion ? (
-    <StaticCore className="absolute inset-0" />
+  ) : showFallback ? (
+    <StaticCoreFallback className="absolute inset-0" />
   ) : (
-    <Suspense fallback={<StaticCore className="absolute inset-0" />}>
-      <LazyCoreScene paused={!running} scrollRef={scrollRef} />
+    <Suspense fallback={<StaticCoreFallback className="absolute inset-0" />}>
+      <LazyCoreScene
+        paused={!running}
+        scrollRef={scrollRef}
+        onContextLost={() => setCtxLost(true)}
+      />
     </Suspense>
   );
 

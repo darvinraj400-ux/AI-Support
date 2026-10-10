@@ -6,6 +6,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Environment, PerformanceMonitor, useDetectGPU } from '@react-three/drei';
 import { CoreCenter } from './CoreCenter';
+import { StaticCoreFallback } from './StaticCoreFallback';
 import { CorePostProcessing } from './CorePostProcessing';
 import { GlassShell } from './GlassShell';
 import { NeuralGeometry } from './NeuralGeometry';
@@ -635,9 +636,12 @@ function maxStageFor(tier: CoreTier): 0 | 1 | 2 {
 export default function IntelligenceCoreScene({
   paused,
   scrollRef,
+  onContextLost,
 }: {
   paused: boolean;
   scrollRef: React.MutableRefObject<number>;
+  /** Sticky swap to the static snapshot on webglcontextlost. */
+  onContextLost?: () => void;
 }) {
   const [deviceClass, setDeviceClass] = useState<DeviceClass>('desktop');
   const [degraded, setDegraded] = useState(false);
@@ -708,19 +712,9 @@ export default function IntelligenceCoreScene({
   };
   useEffect(writeTelemetry, [tier, deviceClass, degraded, stage, tierDrops, isDesktop]);
 
-  // Very-low-tier GPU: same inline gradient language as StaticCore,
-  // zero runtime 3D work.
+  // Very-low-tier GPU: static snapshot of the live Core, zero runtime 3D.
   if (tier === null) {
-    return (
-      <div
-        aria-hidden
-        className="absolute inset-0"
-        style={{
-          background:
-            'radial-gradient(circle at 50% 50%, rgba(139,92,246,0.16), rgba(59,130,246,0.05) 42%, transparent 66%)',
-        }}
-      />
-    );
+    return <StaticCoreFallback className="absolute inset-0" />;
   }
 
   return (
@@ -732,6 +726,13 @@ export default function IntelligenceCoreScene({
       onCreated={({ gl }) => {
         glRef.current = gl;
         writeTelemetry();
+        // Context loss mid-session: prevent default (no auto-restore) and
+        // tell CoreCanvas to swap to the static snapshot. Sticky — the live
+        // scene never attempts to come back.
+        gl.domElement.addEventListener('webglcontextlost', (e) => {
+          e.preventDefault();
+          onContextLost?.();
+        });
       }}
     >
       {/* Particle-shedding guard: sustained sub-40fps rebuilds a smaller field
